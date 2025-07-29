@@ -21,22 +21,33 @@ from scipy.sparse import issparse
 import scipy.sparse as sp
 from deeprobust.graph.data import Dataset
 import numpy as np
-from torch_geometric.utils import k_hop_subgraph, add_self_loops
+from torch_geometric.utils import k_hop_subgraph, add_self_loops, subgraph
 
 from model.gcn_model import GCN_model
 
 
 class PyGCompatibleGCN(torch.nn.Module):
-    def __init__(self, in_channels, hidden_channels, out_channels):
+    def __init__(self, in_channels, hidden_channels, out_channels, bias=True):
         super().__init__()
-        self.conv1 = GCNConv(in_channels, hidden_channels, bias=True)  # 强制启用偏置
-        self.conv2 = GCNConv(hidden_channels, out_channels, bias=True)
+        self.conv1 = GCNConv(in_channels, hidden_channels, bias=bias)  # 强制启用偏置
+        self.conv2 = GCNConv(hidden_channels, out_channels, bias=bias)
 
     def forward(self, x, edge_index):
         # edge_index, _ = add_self_loops(edge_index, num_nodes=x.size(0))
         x = self.conv1(x, edge_index).relu()
         x = self.conv2(x, edge_index)
         return torch.log_softmax(x, dim=1)
+
+    def node_embeddings(self, sub_x, sub_edge_index):
+        # edge_index, _ = add_self_loops(sub_edge_index, num_nodes=sub_x.size(0))
+        x = self.conv1(sub_x, sub_edge_index).relu()
+        node_embeddings = self.conv2(x, sub_edge_index)
+        return node_embeddings
+
+    def graph_embeddings(self, node_embeddings):
+        emb = torch.mean(node_embeddings, dim=0)
+        # emb = emb / torch.norm(emb)  # Key modification: L2 normalization
+        return emb
 
 
 def transfer_weights(dr_model, pyg_model):
@@ -131,8 +142,19 @@ if __name__ == '__main__':
     dr_logits = torch.tensor(output, device=device)  # 确保同设备
     dr_pred = dr_logits.argmax(dim=1)
 
-    pyg_logits = pyg_gcn(pyg_data.x, pyg_data.edge_index)
+    pyg_logits = pyg_gcn.forward(pyg_data.x, pyg_data.edge_index)
     pyg_pred = pyg_logits.argmax(dim=1)
+
+    # 构建子图向量
+    target_nodes = [5, 6, 7, 8]
+    sub_x = pyg_data.x = pyg_data.x[target_nodes]
+    sub_edge_index, _ = subgraph(
+        subset=target_nodes,
+        edge_index=pyg_data.edge_index,
+        relabel_nodes=True  # 关键：重映射节点ID[9](@ref)
+    )
+    node_embeddings = pyg_gcn.node_embeddings(sub_x, sub_edge_index)
+    graph_embeddings = pyg_gcn.graph_embeddings(node_embeddings)
 
     accuracy = (dr_pred == pyg_pred).float().mean()
     print(f"验证集预测一致性: {accuracy.item() * 100:.2f}%")

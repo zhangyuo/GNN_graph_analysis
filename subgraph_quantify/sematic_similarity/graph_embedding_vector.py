@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GATConv
 from torch_geometric.data import Data
+from torch_geometric.utils import subgraph, from_networkx
 from torch_scatter import scatter_add
 
 
@@ -67,6 +68,63 @@ class GATSimilarity(nn.Module):
         mean_pool = torch.mean(emb, dim=0)
 
         return torch.cat([attn_pool, mean_pool], dim=-1)
+
+
+def cosine_similarity(emb1, emb2):
+    sim = F.cosine_similarity(emb1, emb2, dim=0)
+    sim = round(sim.item(), 2)
+    return sim
+
+
+def get_subgraph_edges(subgraph):
+    pyg_data = from_networkx(subgraph)
+    return pyg_data.edge_index
+
+
+def compute_graph_similarity(subgraph1, subgraph2, pyg_data, pyg_gnn_model):
+    target_nodes1 = list(subgraph1.nodes)
+    target_nodes2 = list(subgraph2.nodes)
+
+    mapping1 = dict(zip(subgraph1.nodes(), range(subgraph1.number_of_nodes())))
+    sub_x = pyg_data.x[target_nodes1]
+    try:
+        sub_edge_index, _ = subgraph(
+            # subset=target_nodes1,
+            # edge_index=pyg_data.edge_index,
+            subset=[mapping1[n] for n in target_nodes1],
+            edge_index=get_subgraph_edges(subgraph1),
+            relabel_nodes=True  # Key: Redefinition of node IDs
+        )
+    except:
+        sub_edge_index, _ = subgraph(
+            subset=target_nodes1,
+            edge_index=pyg_data.edge_index,
+            relabel_nodes=True  # Key: Redefinition of node IDs
+        )
+    node_emb1 = pyg_gnn_model.node_embeddings(sub_x, sub_edge_index)
+    subgraph1_ge = pyg_gnn_model.graph_embeddings(node_emb1)
+
+    mapping2 = dict(zip(subgraph2.nodes(), range(subgraph2.number_of_nodes())))
+    sub_x = pyg_data.x[target_nodes2]
+    try:
+        sub_edge_index, _ = subgraph(
+            # subset=target_nodes2,
+            # edge_index=pyg_data.edge_index,
+            subset=[mapping2[n] for n in target_nodes2],
+            edge_index=get_subgraph_edges(subgraph2),
+            relabel_nodes=True  # Key: Redefinition of node IDs
+        )
+    except:
+        sub_edge_index, _ = subgraph(
+            subset=target_nodes2,
+            edge_index=pyg_data.edge_index,
+            relabel_nodes=True  # Key: Redefinition of node IDs
+        )
+    node_emb2 = pyg_gnn_model.node_embeddings(sub_x, sub_edge_index)
+    subgraph2_ge = pyg_gnn_model.graph_embeddings(node_emb2)
+
+    sim = cosine_similarity(subgraph1_ge, subgraph2_ge)
+    return sim
 
 
 # 测试用例

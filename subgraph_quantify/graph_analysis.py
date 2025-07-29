@@ -28,38 +28,21 @@ from attack.GOttack.OrbitAttack import OrbitAttack
 from attack.GOttack.orbit_table_generator import OrbitTableGenerator
 from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model, evasion_test_acc_GCN
 from instance_level_subgraph.GNNExplainer_subgraph.generate_gnnexplainer_subgraph import gnnexplainer_subgraph
+from model.gcn_model import GCN_model
 from model.model_transfer import adj_to_edge_index, PyGCompatibleGCN, transfer_weights, dr_data_to_pyg_data
-from subgraph_quantify.sematic_similarity.graph_embedding_vector import GATSimilarity
+from subgraph_quantify.sematic_similarity.graph_embedding_vector import GATSimilarity, compute_graph_similarity
 from subgraph_quantify.structual_similarity.graph_edit_distance import compute_graph_edit_distance
 from subgraph_quantify.structual_similarity.maximum_commom_subgraph import maximum_common_subgraph
-from utilty.attack_visualization import visualize_restricted_attack_subgraph, generate_timestamp_key
+from utilty.attack_visualization import visualize_attack_subgraph, generate_timestamp_key
 from torch_geometric.data import Data
 from torch_geometric.explain import Explainer, GNNExplainer
-from torch_geometric.utils import from_networkx
+from torch_geometric.utils import from_networkx, subgraph
 
 from utilty.clean_subgraph_visualization import visualize_restricted_clean_subgraph
 from utilty.maximum_common_graph_visualization import mx_com_graph_view
 
 
-def gnn_model_generate(test_model, device, features, adj, labels, idx_train, idx_val):
-    gnn_model = None
-    output = None
-    if test_model == 'GCN':
-        target_gcn = GCN(nfeat=features.shape[1],
-                         nhid=16,
-                         nclass=labels.max().item() + 1,
-                         dropout=0.5, device=device)
-        target_gcn = target_gcn.to(device)
-        target_gcn.fit(features, adj, labels, idx_train, idx_val, patience=30)
-        target_gcn.eval()
-        output = target_gcn.predict()
-        gnn_model = target_gcn
-    else:
-        pass
-    return gnn_model, output
-
-
-def select_test_nodes(attack_type, explanation_type, idx_test, ori_output):
+def select_test_nodes(attack_type, explanation_type, idx_test, ori_output, labels):
     """
     selecting nodes as reported in nettack paper:
     (i) the 10 nodes with highest margin of classification, i.e. they are clearly correctly classified,
@@ -71,7 +54,7 @@ def select_test_nodes(attack_type, explanation_type, idx_test, ori_output):
     :return:
     """
     node_list = []
-    if attack_type == 'Poison' and explanation_type == 'class-level':
+    if attack_type is None:
         pass
     else:
         margin_dict = {}
@@ -81,10 +64,16 @@ def select_test_nodes(attack_type, explanation_type, idx_test, ori_output):
                 continue
             margin_dict[idx] = margin
         sorted_margins = sorted(margin_dict.items(), key=lambda x: x[1], reverse=True)
-        high = [x for x, y in sorted_margins[: 10]]
-        low = [x for x, y in sorted_margins[-10:]]
-        other = [x for x, y in sorted_margins[10: -10]]
-        other = np.random.choice(other, 20, replace=False).tolist()
+        high = []
+        low = []
+        other = []
+        for class_num in set(labels):
+            class_num_sorted_margins = [x for x, y in sorted_margins if labels[x] == class_num]
+            high += [x for x in class_num_sorted_margins[: 10]]
+            low += [x for x in class_num_sorted_margins[-10:]]
+            other_0 = [x for x in class_num_sorted_margins[10: -10]]
+            other += np.random.choice(other_0, 20, replace=False).tolist()
+
         node_list += high + low + other
         node_list = [int(x) for x in node_list]
 
@@ -127,7 +116,8 @@ def GOttack_Evasion_attack(gnn_model, data, attack_model, target_node_list, budg
     false_class_node = []
     attack_subgraph = {}
     for target_node in tqdm(target_node_list):
-        attack_model.attack(features, adj, labels, target_node, budget, verbose=verbose)
+        # attack_model.attack(features, adj, labels, target_node, budget, verbose=verbose)
+        attack_model.attack_e_minus(features, adj, labels, target_node, budget, verbose=verbose)
         modified_adj = attack_model.modified_adj  # get modified adj for one target node in a given budget, you can used in evasion and poisoning attack stages
         changed_label = None
         modified_labels = None
@@ -142,7 +132,7 @@ def GOttack_Evasion_attack(gnn_model, data, attack_model, target_node_list, budg
             attack_state = 'success'
         else:
             attack_state = 'fail'
-        subgraph = visualize_restricted_attack_subgraph(
+        subgraph = visualize_attack_subgraph(
             modified_adj,
             adj,
             labels,
@@ -156,7 +146,7 @@ def GOttack_Evasion_attack(gnn_model, data, attack_model, target_node_list, budg
             pic_path=evasion_attack_subgraph_path
         )
         print("generate evasion attack subgraph for node {}".format(target_node))
-        attack_subgraph[target_node] = {'at_subgraph': subgraph[1],
+        attack_subgraph[target_node] = {'at_subgraph': subgraph[0],
                                         'at_subgraph_visual': subgraph[0],
                                         'attack_state': attack_state,
                                         'original_label': labels[target_node],
@@ -165,7 +155,8 @@ def GOttack_Evasion_attack(gnn_model, data, attack_model, target_node_list, budg
                                         'modified_adj': modified_adj,
                                         'modified_features': None,
                                         'modified_labels': modified_labels,
-                                        'modified_gcn_model': None}
+                                        'modified_gcn_model': None,
+                                        'E_type': subgraph[2]}
     return miss / len(target_node_list), attack_subgraph
 
 
@@ -190,7 +181,7 @@ def GOttack_Poison_attack(data, attack_model, target_node_list, budget, device, 
             attack_state = 'success'
         else:
             attack_state = 'fail'
-        subgraph = visualize_restricted_attack_subgraph(
+        subgraph = visualize_attack_subgraph(
             modified_adj,
             adj,
             labels,
@@ -204,7 +195,7 @@ def GOttack_Poison_attack(data, attack_model, target_node_list, budget, device, 
             pic_path=poison_attack_subgraph_path
         )
         print("generate poison attack subgraph for node {}".format(target_node))
-        attack_subgraph[target_node] = {'at_subgraph': subgraph[1],
+        attack_subgraph[target_node] = {'at_subgraph': subgraph[0],
                                         'at_subgraph_visual': subgraph[0],
                                         'attack_state': attack_state,
                                         'original_label': labels[target_node],
@@ -245,13 +236,14 @@ def attack_subgraph_generate(gnn_model, attack_method, attack_budget_list, targe
 
 
 def clean_explanation_subgraph_generate(explainer, pyg_data, explainer_method, target_node_list, labels, features,
-                                        explainer_edge_important_threshold, max_nodes,
+                                        attack_subgraph, explainer_edge_important_threshold, max_nodes,
                                         instance_level_explanation_subgraph_path):
     clean_explanation_subgraph = {}
     if explainer_method == "GNNExplainer":
         for target_node in tqdm(target_node_list):
+            attack_subgraph_edge_num = len(attack_subgraph[target_node]['at_subgraph'].edges)
             subgraph = gnnexplainer_subgraph(explainer, pyg_data, target_node, labels, features, max_nodes,
-                                             instance_level_explanation_subgraph_path,
+                                             instance_level_explanation_subgraph_path, attack_subgraph_edge_num,
                                              threshold=explainer_edge_important_threshold, ex_type='clean')
             clean_explanation_subgraph[target_node] = subgraph
     return clean_explanation_subgraph
@@ -268,12 +260,14 @@ def attack_explanation_subgraph_generate(attack_type, explainer, attack_subgraph
             modified_adj = at_sbg_dt['modified_adj']
             modified_features = at_sbg_dt['modified_features'] if at_sbg_dt['modified_features'] else features
             modified_gcn_model = at_sbg_dt['modified_gcn_model']
+            attack_subgraph_edge_num = len(attack_subgraph[target_node]['at_subgraph'].edges)
             subgraph = None
             if attack_type == "Evasion":
                 # change pyg_data, features, labels
                 attacked_pyg_data = dr_data_to_pyg_data(modified_adj, modified_features, modified_labels)
                 subgraph = gnnexplainer_subgraph(explainer, attacked_pyg_data, target_node, modified_labels,
                                                  modified_features, max_nodes, instance_level_explanation_subgraph_path,
+                                                 attack_subgraph_edge_num,
                                                  threshold=explainer_edge_important_threshold,
                                                  ex_type='attack')
             elif attack_type == "Poison":
@@ -285,6 +279,7 @@ def attack_explanation_subgraph_generate(attack_type, explainer, attack_subgraph
                 print(f"GNN explainer newly trained in {elapsed:.4f}s!")
                 subgraph = gnnexplainer_subgraph(modified_explainer, pyg_data, target_node, modified_labels,
                                                  modified_features, max_nodes, instance_level_explanation_subgraph_path,
+                                                 attack_subgraph_edge_num,
                                                  threshold=explainer_edge_important_threshold,
                                                  ex_type='attack')
 
@@ -296,6 +291,7 @@ def attack_explanation_subgraph_generate(attack_type, explainer, attack_subgraph
 def clean_subgraph_generate(target_node_list, adj, labels, features, max_nodes, k_hop, clean_subgraph_path):
     clean_subgraph = {}
     max_nodes = 50  # ensure comparison graph has more nodes
+    k_hop = 2
     for target_node in tqdm(target_node_list):
         subgraph = visualize_restricted_clean_subgraph(
             adj,
@@ -327,6 +323,7 @@ def generate_subgraph(attack_type, explanation_type, target_node_list, gnn_model
                                                    max_nodes, k_hop, evasion_attack_subgraph_path, attack_type)
         clean_explanation_subgraph = clean_explanation_subgraph_generate(explainer, pyg_data, explainer_method,
                                                                          target_node_list, labels, features,
+                                                                         attack_subgraph,
                                                                          explainer_edge_important_threshold, max_nodes,
                                                                          instance_level_explanation_subgraph_path)
         attacked_explanation_subgraph = attack_explanation_subgraph_generate(attack_type, explainer, attack_subgraph,
@@ -366,18 +363,24 @@ def generate_subgraph(attack_type, explanation_type, target_node_list, gnn_model
     return subgraph_data
 
 
-def gnn_explainer_generate(gnn_model, device, features, labels):
+def GCNtoPYG(gnn_model, device, features, labels):
     # initialize pyg gcn model
     pyg_gcn = PyGCompatibleGCN(
         in_channels=features.shape[1],
         hidden_channels=16,
-        out_channels=labels.max().item() + 1
+        out_channels=labels.max().item() + 1,
+        bias=True
     )
     pyg_gcn = pyg_gcn.to(device)
 
     # Initialize model (using deeprobust adjacency matrix)
     dr_trained_model = gnn_model
     pyg_gcn = transfer_weights(dr_trained_model, pyg_gcn)
+    return pyg_gcn
+
+
+def gnn_explainer_generate(gnn_model, device, features, labels):
+    pyg_gcn = GCNtoPYG(gnn_model, device, features, labels)
 
     # Create explainer (using PyG-formatted data)
     explainer = Explainer(
@@ -400,8 +403,7 @@ def gnn_explainer_generate(gnn_model, device, features, labels):
     return explainer
 
 
-def subgraph_quantify(attack_subgraph, explanation_subgraph, features, pic_name='at_vs_ex'):
-    model = GATSimilarity(in_dim=features.shape[1], hidden_dim=256, heads=8)
+def subgraph_quantify(attack_subgraph, explanation_subgraph, pyg_data, pyg_gnn_model, pic_name='at_vs_ex'):
     similarity_dict = {}
     for target_node, subgraph_data in tqdm(attack_subgraph.items()):
         # if target_node != 1697:
@@ -412,64 +414,39 @@ def subgraph_quantify(attack_subgraph, explanation_subgraph, features, pic_name=
         ex_subgraph = explanation_subgraph[target_node]
         attack_state = subgraph_data['attack_state']
         similarity_dict[target_node]["attack_state"] = attack_state
+        edge_attack_type = subgraph_data['E_type']
+        similarity_dict[target_node]["edge_attack_type"] = edge_attack_type
 
         # graph edit distance
         ged = compute_graph_edit_distance(at_subgraph, ex_subgraph)
         similarity_dict[target_node]["ged"] = ged
 
-        # from gedlib import gedlib
-        # ged_env = gedlib.GEDEnv()
-        # ged_env.set_method(gedlib.F2, "ASTAR")
-        # ged_env.set_timeout(60)
-        # ged_env.init_method()
-        # graph_id1 = ged_env.add_nx_graph(at_subgraph, "at_subgraph")  # 返回图的 ID
-        # graph_id2 = ged_env.add_nx_graph(ex_subgraph, "ex_subgraph")
-        # ged = ged_env.get_upper_bound(graph_id1, graph_id2)
-        # print(ged)
-
         # maximum common graph
-        mcs, mapping = maximum_common_subgraph(at_subgraph, ex_subgraph, target_node=target_node)
-        print("MCS Nodes:", mcs.nodes)
+        best_connected_common_subgraph, mapping, mcs = maximum_common_subgraph(at_subgraph, ex_subgraph,
+                                                                               target_node=target_node)
+        print("MCS Nodes:", best_connected_common_subgraph.nodes)
         print("Node Mapping:", mapping)
-        mx_com_graph_view(target_node, at_subgraph, ex_subgraph, mcs, mapping, graph_analysis_subgraph_path,
+        mx_com_graph_view(target_node, at_subgraph, ex_subgraph, best_connected_common_subgraph, mapping,
+                          graph_analysis_subgraph_path,
                           graph_one_name="Attack Subgraph",
                           graph_two_name="Explanation Subgraph", pic_name=pic_name)
         similarity_dict[target_node]["mcs"] = mcs
 
         # graph embedding vector
         start_time = time.time()
-        coo_fea = sp.coo_matrix(features)
-        data = from_networkx(at_subgraph)
-        data.x = torch.stack([torch.tensor(coo_fea.A[i]) for i in at_subgraph.nodes])
-        at_subgraph_ge = data
-        data = from_networkx(ex_subgraph)
-        data.x = torch.stack([torch.tensor(coo_fea.A[i]) for i in ex_subgraph.nodes])
-        ex_subgraph_ge = data
-        data = from_networkx(mcs)
-        data.x = torch.stack([torch.tensor(coo_fea.A[i]) for i in mcs.nodes])
-        mcs_ge = data
-        similarity, (attn_weights1, attn_weights2) = model.forward(at_subgraph_ge, ex_subgraph_ge)
+        similarity = compute_graph_similarity(at_subgraph, ex_subgraph, pyg_data, pyg_gnn_model)
         print(f"Similarity between at_subgraph and ex_subgraph: {similarity}")
-        # print((attn_weights1, attn_weights2))
         elapsed = time.time() - start_time
         print(f"graph embedding vector computed in {elapsed:.4f}s!")
         similarity_dict[target_node]["gev_at_ex"] = similarity
-        similarity_dict[target_node]["gev_at_ex_w1"] = attn_weights1
-        similarity_dict[target_node]["gev_at_ex_w2"] = attn_weights2
 
-        similarity, (attn_weights1, attn_weights2) = model.forward(at_subgraph_ge, mcs_ge)
+        similarity = compute_graph_similarity(at_subgraph, best_connected_common_subgraph, pyg_data, pyg_gnn_model)
         print(f"Similarity between at_subgraph and mcs: {similarity}")
-        # print((attn_weights1, attn_weights2))
         similarity_dict[target_node]["gev_at_mcs"] = similarity
-        similarity_dict[target_node]["gev_at_mcs_w1"] = attn_weights1
-        similarity_dict[target_node]["gev_at_mcs_w2"] = attn_weights2
 
-        similarity, (attn_weights1, attn_weights2) = model.forward(ex_subgraph_ge, mcs_ge)
+        similarity = compute_graph_similarity(ex_subgraph, best_connected_common_subgraph, pyg_data, pyg_gnn_model)
         print(f"Similarity between at_subgraph and mcs: {similarity}")
-        # print((attn_weights1, attn_weights2))
         similarity_dict[target_node]["gev_ex_mcs"] = similarity
-        similarity_dict[target_node]["gev_ex_mcs_w1"] = attn_weights1
-        similarity_dict[target_node]["gev_ex_mcs_w2"] = attn_weights2
 
     return similarity_dict
 
@@ -482,7 +459,6 @@ if __name__ == "__main__":
     # sys.path.append(base_path + "/lib")
 
     ######################### initialize random state  #########################
-    # random.seed(102)
     np.random.seed(102)
 
     ######################### initialize data experiment  #########################
@@ -490,22 +466,22 @@ if __name__ == "__main__":
     dataset_name = 'cora'
     test_model = 'GCN'  # GSAGE, GCN, GIN
     device = "cpu"
-    max_nodes = 10
-    k_hop = 2
+    max_nodes = None
+    k_hop = None
 
     # attack parameters
-    attack_type = 'Poison'  # ['Evasion', 'Poison']
+    attack_type = 'Evasion'  # ['Evasion', 'Poison']
     attack_budget_list = [5]  # [5,4,3,2,1]
     attack_method = '1518'  # ['1518'], 1518 means GOttack
 
     # explainer parameters
     explanation_type = 'instance-level'  # ['instance-level', 'class-level', 'counterfactual']
     explainer_method = 'GNNExplainer'  # ['GNNExplainer']
-    explainer_edge_important_threshold = 0.8  # explainer edge important threshold
+    explainer_edge_important_threshold = None  # explainer edge important threshold
 
     # create data results path
     # time_name = generate_timestamp_key()  # different files path for each test
-    time_name = '20250704'  # for debug test
+    time_name = '20250716'  # for debug test
     # clean subgraph path
     clean_subgraph_path = base_path + f'/clean_subgraph/results_{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_{attack_budget_list}_{time_name}'
     if not os.path.exists(clean_subgraph_path):
@@ -554,19 +530,26 @@ if __name__ == "__main__":
     data = Dataset(root=dataset_path, name=dataset_name)
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
-    # save subgraph results
-    subgraph_data = None
 
-    ######################### GNN model generate  #########################
-    gnn_model, ori_output = gnn_model_generate(test_model, device, features, adj, labels, idx_train, idx_val)
-
-    ######################### select test nodes  #########################
-    target_node_list = select_test_nodes(attack_type, explanation_type, idx_test, ori_output)
-    # # target_node_list = target_node_list[0:2]
-
-    ######################### GNN explainer generate  #########################
     # Create PyG Data object
     pyg_data = dr_data_to_pyg_data(adj, features, labels)
+
+    # save subgraph results
+    subgraph_data = None
+    gnn_model = None
+
+    ######################### GNN model generate  #########################
+    ori_output = None
+    if test_model == 'GCN':
+        gnn_model, ori_output = GCN_model(adj, features, labels, device, idx_train, idx_val)
+    file_path = os.path.join(graph_analysis_subgraph_path, 'gcn_model.pth')
+    torch.save(gnn_model.state_dict(), file_path)
+
+    ######################### select test nodes  #########################
+    target_node_list = select_test_nodes(attack_type, explanation_type, idx_test, ori_output, labels)
+    # target_node_list = target_node_list[0:20]
+
+    ######################### GNN explainer generate  #########################
     explainer = gnn_explainer_generate(gnn_model, device, features, labels)
 
     ######################### generate subgraph  #########################
@@ -574,10 +557,15 @@ if __name__ == "__main__":
                                       device, test_model, attack_method, attack_budget_list, explainer_method, data,
                                       features, adj, labels, idx_train, idx_val, explainer_edge_important_threshold,
                                       max_nodes, k_hop)
-    # with open(graph_analysis_subgraph_path + "/subgraph_data.pickle", "wb") as fw:
-    #     pickle.dump(subgraph_data, fw)
+    with open(graph_analysis_subgraph_path + "/subgraph_data.pickle", "wb") as fw:
+        pickle.dump(subgraph_data, fw)
 
     ######################### subgraph quantify  #########################
+    if not gnn_model:
+        file_path = os.path.join(graph_analysis_subgraph_path, 'gcn_model.pth')
+        gnn_model = GCN(nfeat=features.shape[1], nhid=16, nclass=labels.max().item() + 1, dropout=0.5, device=device)
+        gnn_model.load_state_dict(torch.load(file_path))
+        gnn_model.eval()
     if not subgraph_data:
         with open(graph_analysis_subgraph_path + "/subgraph_data.pickle", "rb") as fr:
             subgraph_data = pickle.load(fr)
@@ -587,62 +575,24 @@ if __name__ == "__main__":
     attacked_explanation_subgraph = subgraph_data['attacked_explanation_subgraph']
 
     # # attack subgraph vs. clean explanation subgraph
-    similarity_dict_1 = subgraph_quantify(attack_subgraph, clean_explanation_subgraph, features, pic_name='at_vs_cl-ex')
+    pyg_gnn_model = GCNtoPYG(gnn_model, device, features, labels)
+    similarity_dict_1 = subgraph_quantify(attack_subgraph, clean_explanation_subgraph, pyg_data, pyg_gnn_model,
+                                          pic_name='at_vs_cl-ex')
 
     # attack subgraph vs. attacked explanation subgraph
-    similarity_dict_2 = subgraph_quantify(attack_subgraph, attacked_explanation_subgraph, features,
+    similarity_dict_2 = subgraph_quantify(attack_subgraph, attacked_explanation_subgraph, pyg_data, pyg_gnn_model,
                                           pic_name='at_vs_at-ex')
 
     # Save all results
-    result1 = pd.DataFrame(similarity_dict_1.values(), columns=['attack_state', 'ged', 'mcs', 'gev_at_ex',
-                                                                'gev_at_ex_w1', 'gev_at_ex_w2', 'gev_at_mcs',
-                                                                'gev_at_mcs_w1', 'gev_at_mcs_w2', 'gev_ex_mcs',
-                                                                'gev_ex_mcs_w1', 'gev_ex_mcs_w2'],
+    result1 = pd.DataFrame(similarity_dict_1.values(),
+                           columns=['attack_state', 'edge_attack_type', 'ged', 'mcs', 'gev_at_ex',
+                                    'gev_at_mcs', 'gev_ex_mcs'],
                            index=similarity_dict_1.keys())
-    result1.to_csv(graph_analysis_subgraph_path + '/result_{}_{}_1.csv'.format('all', 'at_vs_cl-ex'))
-    result2 = pd.DataFrame(similarity_dict_2.values(), columns=['attack_state', 'ged', 'mcs', 'gev_at_ex',
-                                                                'gev_at_ex_w1', 'gev_at_ex_w2', 'gev_at_mcs',
-                                                                'gev_at_mcs_w1', 'gev_at_mcs_w2', 'gev_ex_mcs',
-                                                                'gev_ex_mcs_w1', 'gev_ex_mcs_w2'],
+    result1.to_csv(graph_analysis_subgraph_path + '/result_{}_{}_test.csv'.format('all', 'at_vs_cl-ex'))
+    result2 = pd.DataFrame(similarity_dict_2.values(),
+                           columns=['attack_state', 'edge_attack_type', 'ged', 'mcs', 'gev_at_ex',
+                                    'gev_at_mcs', 'gev_ex_mcs'],
                            index=similarity_dict_2.keys())
-    result2.to_csv(graph_analysis_subgraph_path + '/result_{}_{}_1.csv'.format('all', 'at_vs_at-ex'))
+    result2.to_csv(graph_analysis_subgraph_path + '/result_{}_{}_test.csv'.format('all', 'at_vs_at-ex'))
 
     print("graph analysis done")
-
-    # # Save ged results
-    # pass
-    #
-    # # save mcs results
-    # result1 = pd.DataFrame(similarity_dict.values(), columns=['attack_state', 'ged', 'mcs', 'gev_at_ex',
-    #                                                           'gev_at_ex_w1', 'gev_at_ex_w2', 'gev_at_mcs',
-    #                                                           'gev_at_mcs_w1', 'gev_at_mcs_w2', 'gev_ex_mcs',
-    #                                                           'gev_ex_mcs_w1', 'gev_ex_mcs_w2'],
-    #                        index=similarity_dict.keys())
-    # result1.to_csv('./result_{}_{}.csv'.format('ged', 'at_vs_cl-ex'))
-    # result2 = pd.DataFrame(similarity_dict.values(), columns=['attack_state', 'ged', 'mcs', 'gev_at_ex',
-    #                                                           'gev_at_ex_w1', 'gev_at_ex_w2', 'gev_at_mcs',
-    #                                                           'gev_at_mcs_w1', 'gev_at_mcs_w2', 'gev_ex_mcs',
-    #                                                           'gev_ex_mcs_w1', 'gev_ex_mcs_w2'],
-    #                        index=similarity_dict.keys())
-    # result2.to_csv('./result_{}_{}.csv'.format('ged', 'at_vs_at-ex'))
-    #
-    # # save gev results
-    # result1 = pd.DataFrame(similarity_dict.values(), columns=['attack_state', 'ged', 'mcs', 'gev_at_ex',
-    #                                                           'gev_at_ex_w1', 'gev_at_ex_w2', 'gev_at_mcs',
-    #                                                           'gev_at_mcs_w1', 'gev_at_mcs_w2', 'gev_ex_mcs',
-    #                                                           'gev_ex_mcs_w1', 'gev_ex_mcs_w2'],
-    #                        index=similarity_dict.keys())
-    # result1.to_csv('./result_{}_{}.csv'.format('ged', 'at_vs_cl-ex'))
-    # result2 = pd.DataFrame(similarity_dict.values(), columns=['attack_state', 'ged', 'mcs', 'gev_at_ex',
-    #                                                           'gev_at_ex_w1', 'gev_at_ex_w2', 'gev_at_mcs',
-    #                                                           'gev_at_mcs_w1', 'gev_at_mcs_w2', 'gev_ex_mcs',
-    #                                                           'gev_ex_mcs_w1', 'gev_ex_mcs_w2'],
-    #                        index=similarity_dict.keys())
-    # result2.to_csv('./result_{}_{}.csv'.format('ged', 'at_vs_at-ex'))
-    #
-    # result1 = pd.DataFrame(similarity_dict_1.values(), columns=['similarity'], index=similarity_dict_1.keys())
-    # result1.to_csv('./result_{}_{}.csv'.format('similarity', 'attack_subgraph_vs_clean_explanation_subgraph'))
-    # result2 = pd.DataFrame(similarity_dict_2.values(), columns=['similarity'], index=similarity_dict_2.keys())
-    # result2.to_csv('./result_{}_{}.csv'.format('similarity', 'attack_subgraph_vs_attacked_explanation_subgraph'))
-
-    # print("graph analysis done")

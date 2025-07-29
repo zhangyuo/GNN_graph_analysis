@@ -52,86 +52,6 @@ def adj_to_nx(adj, features, labels=None):
     return G
 
 
-def visualize_attack_graph(perturbed_adj, original_adj, labels, features,
-                           title="Graph visualization for adversarial attack"):
-    """
-    Graph visualization for adversarial attack
-    :param perturbed_adj: modified adjacency matrix
-    :param original_adj: original adjacency matrix
-    :param labels: node labels
-    :param title: visualization title
-    :return:
-    """
-    # build graph object
-    G_pert = adj_to_nx(perturbed_adj, features, labels)  # for visualization on attack graph
-    G_orig = adj_to_nx(original_adj, features,
-                       labels)  # for comparison to see which edges are changed with attack graph
-
-    # find modified edges using red highlighted color
-    edge_diff = set(G_pert.edges()) ^ set(G_orig.edges())
-
-    # nodes color mapping by labels
-    unique_labels = np.unique(labels)
-    if len(unique_labels) > 10:
-        color_map = plt.cm.viridis
-    else:
-        color_map = plt.cm.tab10
-    node_colors = [color_map(labels[i] % 10) for i in G_pert.nodes()]
-
-    # layout algorithm
-    pos = nx.spring_layout(G_pert, seed=42, k=0.15)
-
-    # plot settings
-    plt.figure(figsize=(15, 10))
-
-    # draw nodes (color by label)
-    nx.draw_networkx_nodes(
-        G_pert, pos,
-        node_size=80,
-        node_color=node_colors,
-        alpha=0.9
-    )
-
-    # draw the unmodified edges (in gray)
-    nx.draw_networkx_edges(
-        G_pert, pos,
-        edgelist=set(G_pert.edges()) - edge_diff,
-        edge_color='grey',
-        width=0.8,
-        alpha=0.3
-    )
-
-    # draw the modified edges of the attack (highlighted in red)
-    nx.draw_networkx_edges(
-        G_pert, pos,
-        edgelist=edge_diff,
-        edge_color='red',
-        width=1.5,
-        alpha=0.7,
-        style='dashed'
-    )
-
-    # add nodes' label
-    label_dict = {i: f"{i}:{labels[i]}" for i in range(len(labels))}
-    nx.draw_networkx_labels(
-        G_pert, pos,
-        labels=label_dict,
-        font_size=8,
-        font_color='black'
-    )
-
-    # Add legend (color mapping for labels)
-    legend_handles = [
-        Patch(color=color_map(i), label=f"Class {i}")
-        for i in unique_labels
-    ]
-    plt.legend(handles=legend_handles, loc='upper right')
-
-    plt.title(title, fontsize=16)
-    plt.axis('off')
-    # plt.show()
-
-
 def generate_timestamp_key():
     """
     Generates 19-digit unique key:
@@ -397,8 +317,231 @@ def visualize_restricted_attack_subgraph(
     elapsed = time.time() - start_time
     print(f"attack subgraph visualized in {elapsed:.4f}s!")
 
-    return (subgraph, true_subgraph)
+    return subgraph, true_subgraph
 
+def visualize_attack_subgraph(
+        perturbed_adj,
+        original_adj,
+        labels,
+        features,
+        changed_label,
+        target_node,
+        attack_state,
+        k_hop=2,
+        max_nodes=20,
+        title="Visualization for Adversarial Attack Subgraph",
+        pic_path=None
+):
+    """
+    Visualization for adversarial attack subgraph
+    :param perturbed_adj: modified adjacency matrix
+    :param original_adj: original adjacency matrix
+    :param labels: node labels
+    :param changed_label: changed label
+    :param target_node: target node
+    :param k_hop: k-hop nodes
+    :param max_nodes: restricted nodes
+    :param title: visualization title
+    :param pic_path: save path of pictures
+    :return:
+    """
+    start_time = time.time()
+    # ===== 1. Build graphs and compute edge differences =====
+    G_pert = adj_to_nx(perturbed_adj, features, labels)
+    G_orig = adj_to_nx(original_adj, features, labels)
+
+    # Compute added and removed edges
+    added_edges = set(G_pert.edges()) - set(G_orig.edges())
+    removed_edges = set(G_orig.edges()) - set(G_pert.edges())
+
+    # save E+ or E-
+    E_type = None
+    if len(added_edges) > len(removed_edges):
+        E_type = "E+"
+    else:
+        E_type = "E-"
+    # removed_edges = set()
+    all_mod_edges = added_edges | removed_edges
+
+    # ===== 2. Hierarchical node sampling：Priority expansion with real-time connectivity guarantee =====
+    # Critical nodes: target + all endpoints of modified edges
+    critical_nodes = {target_node} | {n for edge in all_mod_edges for n in edge}
+    candidate_nodes = {target_node} | {n for edge in added_edges for n in edge}
+
+    # ===== 3. Build final subgraph =====
+    true_subgraph = G_pert.subgraph(candidate_nodes).copy()
+
+    elapsed = time.time() - start_time
+    start_time = time.time()
+    print(f"attack subgraph generated in {elapsed:.4f}s!")
+
+    # 增加被攻击的边和末端节点，用于可视化
+    subgraph = nx.Graph()  # Use undirected graph
+    # add nodes
+    for node in critical_nodes:
+        node_label = int(labels[node]) if labels is not None else -1
+        subgraph.add_node(node, label=node_label)
+    # Add edges (store importance values)
+    subgraph.add_edges_from(all_mod_edges)
+
+    # Extract modified edges within subgraph
+    sub_added = [e for e in added_edges if e[0] in critical_nodes and e[1] in critical_nodes]
+    sub_removed = [e for e in removed_edges if e[0] in critical_nodes and e[1] in critical_nodes]
+
+    # ===== 4. Visual configuration =====
+    plt.figure(figsize=(14, 10))
+    pos = nx.spring_layout(subgraph, seed=42, k=0.7 / len(critical_nodes) ** 0.5)
+
+    # --- Node coloring by class ---
+    # Get unique classes and create color map
+    unique_classes = np.unique(labels)
+    class_colors = plt.cm.tab10(np.linspace(0, 1, len(unique_classes)))
+    class_color_map = {cls: class_colors[i] for i, cls in enumerate(unique_classes)}
+
+    # Create node color list
+    node_colors = [class_color_map[labels[n]] for n in subgraph.nodes()]
+
+    # Draw nodes with class-based colors
+    nx.draw_networkx_nodes(
+        subgraph, pos,
+        node_size=100,
+        node_color=node_colors,
+        edgecolors='grey',
+        linewidths=0.8,
+        alpha=0.9
+    )
+
+    # Highlight target node
+    nx.draw_networkx_nodes(
+        subgraph, pos,
+        nodelist=[target_node],
+        node_size=300,
+        node_color=class_color_map[labels[target_node]],
+        edgecolors='gold',
+        linewidths=2.5,
+        alpha=0.9
+    )
+
+    # Highlight critical nodes (endpoints of modified edges)
+    critical_nodes_no_target = [n for n in critical_nodes if n != target_node]
+    nx.draw_networkx_nodes(
+        subgraph, pos,
+        nodelist=critical_nodes_no_target,
+        node_size=150,
+        node_color=[class_color_map[labels[n]] for n in critical_nodes_no_target],
+        edgecolors='red',
+        linewidths=1.5,
+        alpha=0.9
+    )
+
+    # --- Edge drawing ---
+    # 1. Unmodified edges (gray)
+    unmod_edges = set(subgraph.edges()) - set(sub_added)
+    nx.draw_networkx_edges(
+        subgraph, pos,
+        edgelist=unmod_edges,
+        edge_color='grey',
+        width=0.8,
+        alpha=0.3
+    )
+
+    # 2. Added edges (red solid)
+    nx.draw_networkx_edges(
+        subgraph, pos,
+        edgelist=sub_added,
+        edge_color='red',
+        width=1.8,
+        alpha=0.9,
+        style='solid'
+    )
+
+    # 3. Removed edges (red dashed)
+    nx.draw_networkx_edges(
+        subgraph, pos,
+        edgelist=sub_removed,
+        edge_color='red',
+        width=1.8,
+        alpha=0.7,
+        style='dashed'
+    )
+
+    # --- Label system ---
+    # Node labels: ID:Class
+
+    label_dict = {n: f"{n}:{labels[n]}" for n in critical_nodes if n in subgraph and n != target_node}
+    label_dict[target_node] = f"{target_node}:{labels[target_node]}-->{changed_label}"
+
+    # Create offset positions for labels (move labels upward)
+    # label_pos = {node: (x, y + 0.05) for node, (x, y) in pos.items()}  # Increase the Y-axis offset
+    label_pos = pos
+
+    nx.draw_networkx_labels(
+        subgraph,
+        label_pos,  # Use the offset position
+        labels=label_dict,
+        font_size=12,
+        font_weight='normal',
+        verticalalignment='bottom',  # Set vertical alignment to the bottom
+        horizontalalignment='center',  # Center horizontally
+        bbox=dict(
+            boxstyle="round,pad=0.3",
+            fc="white",
+            ec="gray",
+            alpha=0.1
+        )
+    )
+
+    # ===== 5. Legend system =====
+    # Create legend elements
+    legend_elements = []
+
+    # Class color legend
+    for cls in unique_classes:
+        legend_elements.append(
+            Patch(facecolor=class_color_map[cls], label=f'Class {cls}')
+        )
+
+    # Special elements legend
+    legend_elements.extend([
+        Patch(facecolor=class_color_map[labels[target_node]], edgecolor='gold',
+              linewidth=2.5, label='Target Node'),
+        Patch(facecolor='white', edgecolor='red', linewidth=1.5,
+              label='Critical Node (Modified Edge Endpoint)'),
+        Patch(edgecolor='red', linestyle='-', linewidth=2,
+              label='Added Edge', facecolor='none'),
+        Patch(edgecolor='red', linestyle='--', linewidth=2,
+              label='Removed Edge', facecolor='none')
+    ])
+
+    # Position legend outside the plot
+    plt.legend(
+        handles=legend_elements,
+        loc='center left',
+        bbox_to_anchor=(1, 0.5),
+        frameon=True,
+        framealpha=0.9,
+        title="Visual Legend"
+    )
+
+    # Title with statistics
+    plt.title(
+        f"{title}\n"
+        f"Total Nodes: {len(subgraph.nodes())} | Total Edges: {len(subgraph.edges)} | "
+        f"Added Edges: {len(sub_added)} | "
+        f"Removed Edges: {len(sub_removed)} | "
+        f"Attack_State: {attack_state}",
+        fontsize=14
+    )
+    plt.axis('off')
+    plt.tight_layout()
+    plt.subplots_adjust(right=0.75)  # Make space for legend
+    plt.savefig(pic_path + f"/{attack_state}_attack_{target_node}_{E_type}.png")
+    # plt.show()
+
+    elapsed = time.time() - start_time
+    print(f"attack subgraph visualized in {elapsed:.4f}s!")
+
+    return subgraph, true_subgraph, E_type
 
 if __name__ == '__main__':
     from deeprobust.graph.data import Dataset

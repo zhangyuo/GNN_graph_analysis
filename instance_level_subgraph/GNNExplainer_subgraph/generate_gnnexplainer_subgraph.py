@@ -18,7 +18,9 @@ from torch_sparse import SparseTensor
 from utilty.explanation_visualization import explanation_subgraph_visualization
 
 
-def gnnexplainer_subgraph(explainer, pyg_data, target_node, labels, features, max_nodes, instance_level_explanation_subgraph_path, threshold=0.9, ex_type='clean'):
+def gnnexplainer_subgraph(explainer, pyg_data, target_node, labels, features, max_nodes,
+                          instance_level_explanation_subgraph_path, attack_subgraph_edge_num, threshold=0.9,
+                          ex_type='clean'):
     start_time = time.time()
     # generate explanation for target node from specified explainer
     subset, edge_index_sub, mapping, _ = k_hop_subgraph(
@@ -70,8 +72,8 @@ def gnnexplainer_subgraph(explainer, pyg_data, target_node, labels, features, ma
     # res = os.path.abspath(__file__)
     # base_path = os.path.dirname(os.path.dirname(os.path.dirname(res)))
     explanation_subgraph = explanation_subgraph_visualization(explanation, target_node, edge_mask,
-                                                              labels, features, node_mask, max_nodes=max_nodes,
-                                                              threshold=threshold, ex_type=ex_type,
+                                                              labels, features, node_mask, attack_subgraph_edge_num,
+                                                              ex_type=ex_type,
                                                               pic_path=instance_level_explanation_subgraph_path,
                                                               full_mapping=full_mapping)
 

@@ -20,10 +20,13 @@ def GCN_model(adj, features, labels, device, idx_train, idx_val, target_gcn=None
         target_gcn = GCN(nfeat=features.shape[1],
                          nhid=16,
                          nclass=labels.max().item() + 1,
-                         with_bias=False,
-                         dropout=0.5, device=device)
+                         dropout=0.5,
+                         device=device,
+                         with_bias=True)
         target_gcn = target_gcn.to(device)
         target_gcn.fit(features, adj, labels, idx_train, idx_val, patience=30)
+    else:
+        pass
     target_gcn.eval()
     output = target_gcn.predict()
     return target_gcn, output

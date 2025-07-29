@@ -91,9 +91,12 @@ def maximum_common_subgraph(G1, G2, target_node=None):
         if G1.has_edge(u, v) and G2.has_edge(u, v):
             H.add_edge(u, v)
 
-    # 步骤3: 寻找最大公共子图，判断连通性，找出最大的连通子图
-    # cliques = list(nx.find_cliques(H))
-    # best_clique = max(cliques, key=len) if cliques else []
+    # step 3: compute size of mcs
+    mcs_size = len(H.nodes) + len(H.edges)
+    longest_graph_size = max(len(G1.nodes) + len(G1.edges), len(G2.nodes) + len(G2.edges))
+    mcs = round(mcs_size / longest_graph_size, 2)
+
+    # 步骤4: 寻找最大公共子图，判断连通性，找出最大的连通子图
     if H.number_of_edges() == 0:  # 处理无边图的情况
         if valid_nodes:
             if target_node in valid_nodes:
@@ -107,12 +110,14 @@ def maximum_common_subgraph(G1, G2, target_node=None):
         components = list(nx.connected_components(H))
         best_component = max(components, key=len) if components else set()
 
+    best_connected_common_subgraph = H.subgraph(best_component)
+    mapping = {node: node for node in best_component}  # 节点ID映射到自身
+
     # 步骤4: 输出结果
     elapsed = time.time() - start_time
     print(f"[MCS found in {elapsed:.4f}s] Size: {len(best_component)} nodes")
 
-    mapping = {node: node for node in best_component}  # 节点ID映射到自身
-    return H.subgraph(best_component), mapping
+    return best_connected_common_subgraph, mapping, mcs
 
 
 if __name__ == "__main__":

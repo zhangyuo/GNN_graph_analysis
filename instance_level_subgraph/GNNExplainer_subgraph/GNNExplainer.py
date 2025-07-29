@@ -93,7 +93,7 @@ explainer = Explainer(
 )
 
 # generate explanation for target node from specified explainer
-target_node = 1820
+target_node = 2182
 start_time = time.time()
 # generate explanation for target node from specified explainer
 subset, edge_index_sub, mapping, _ = k_hop_subgraph(
@@ -156,9 +156,10 @@ threshold = 0.9  # given a threshold
 # )
 
 # Visualize subgraph
+attack_subgraph_edge_num = 5
 explanation_subgraph_visualization(explanation, target_node, edge_mask, labels, features,
-                                   node_mask, threshold=threshold, max_nodes=5, ex_type='clean',
-                                   pic_path=base_path + '/instance_level_subgraph/GNNExplainer_subgraph/results_bak/',
+                                   node_mask, attack_subgraph_edge_num, ex_type='clean',
+                                   pic_path=base_path + '/',
                                    full_mapping=full_mapping)
 
 print("ok")

@@ -25,6 +25,8 @@ def node_match(n1, n2):
 
 def compute_graph_edit_distance(G1, G2):
     start_time = time.time()
+
+    # add node id into subgraph
     for id in G1.nodes:
         G1.nodes[id]['id'] = id
     for id in G2.nodes:
@@ -36,36 +38,15 @@ def compute_graph_edit_distance(G1, G2):
         node_match=node_match,
         edge_match=None
     )
-    approx_ged = next(ged_gen)  # 取首个近似解
-    print(f"近似GED: {approx_ged}")
-    ged = approx_ged
 
-    # ged = None
-    # try:
-    #     ged = nx.graph_edit_distance(
-    #         G1,
-    #         G2,
-    #         node_match=node_match,  # 显式忽略节点属性（默认行为已按ID匹配）
-    #         edge_match=None,  # 忽略边属性
-    #         upper_bound=50,  # 最大编辑距离阈值（加速计算）
-    #         # timeout=10  # 超时设置（秒）
-    #     )
-    #     print(f"精确GED: {ged}")
-    #
-    # except (nx.NetworkXNoPath, nx.NodeNotFound):
-    #     print("❌ 节点不连通或节点缺失")
-    # except nx.NetworkXAlgorithmError:
-    #     print("⚠️ 精确计算超时，启用近似算法...")
-    #     # 关键调整3：超时后回退到近似算法
-    #     ged_gen = nx.optimize_graph_edit_distance(
-    #         G1,
-    #         G2,
-    #         node_match=None,
-    #         edge_match=None
-    #     )
-    #     approx_ged = next(ged_gen)  # 取首个近似解
-    #     print(f"近似GED: {approx_ged}")
-    #     ged = approx_ged
+    # get first approximate ged
+    approx_ged = next(ged_gen)
+    print(f"approximate GED: {approx_ged}")
+
+    # normalize the ged
+    # longest_graph_size = max(len(G1.nodes) + len(G1.edges), len(G2.nodes) + len(G2.edges))
+    longest_graph_size = len(G1.nodes) + len(G1.edges) + len(G2.nodes) + len(G2.edges)
+    ged = round(approx_ged / longest_graph_size, 2)
 
     elapsed = time.time() - start_time
     print(f"graph edit distance computed in {elapsed:.4f}s!")

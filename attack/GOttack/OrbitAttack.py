@@ -24,6 +24,9 @@ from copy import deepcopy
 from numba import jit
 from torch import spmm
 
+from model.model_transfer import adj_to_edge_index
+
+
 class OrbitAttack(BaseAttack):
 
 
@@ -135,6 +138,105 @@ class OrbitAttack(BaseAttack):
 
         self.potential_edges = (np.array([[target_node, value] for value in self.matching_index])).astype("int32")
 
+
+        for _ in range(n_perturbations):
+            if verbose:
+                print("##### ...{}/{} perturbations ... #####".format(_+1, n_perturbations))
+
+
+            filtered_edges_final =  self.potential_edges
+
+            # Compute new entries in A_hat_square_uv
+            a_hat_uv_new = self.compute_new_a_hat_uv(filtered_edges_final, target_node)
+            # Compute the struct scores for each potential edge
+            struct_scores = self.struct_score(a_hat_uv_new, self.modified_features @ self.W)
+
+            best_edge_ix = struct_scores.argmin()
+            best_edge_score = struct_scores.min()
+            best_edge = filtered_edges_final[best_edge_ix]
+            self.best_edge_list.append(best_edge)
+
+
+            # perform edge perturbation
+            self.modified_adj[tuple(best_edge)] = self.modified_adj[tuple(best_edge[::-1])] = 1 - self.modified_adj[tuple(best_edge)]
+            self.adj_norm = utils.normalize_adj(self.modified_adj)
+
+            self.structure_perturbations.append(tuple(best_edge))
+            self.feature_perturbations.append(())
+            surrogate_losses.append(best_edge_score)
+
+        # return self.modified_adj, self.modified_features
+
+
+    def attack_e_minus(self, features, adj, labels, target_node, n_perturbations, n_influencers= 0, verbose=True, **kwargs):
+        """Generate perturbations on the input graph.
+
+        Parameters
+        ----------
+        ori_features : torch.Tensor or scipy.sparse.csr_matrix
+            Origina (unperturbed) node feature matrix. Note that
+            torch.Tensor will be automatically transformed into
+            scipy.sparse.csr_matrix
+        ori_adj : torch.Tensor or scipy.sparse.csr_matrix
+            Original (unperturbed) adjacency matrix. Note that
+            torch.Tensor will be automatically transformed into
+            scipy.sparse.csr_matrix
+        labels :
+            node labels
+        target_node : int
+            target node index to be attacked
+        n_perturbations : int
+            Number of perturbations on the input graph. Perturbations could
+            be edge removals/additions or feature removals/additions.
+        direct: bool
+            whether to conduct direct attack
+        n_influencers:
+            number of influencer nodes when performing indirect attack.
+            (setting `direct` to False). When `direct` is True, it would be ignored.
+        verbose : bool
+            whether to show verbose logs
+        """
+
+        if self.nnodes is None:
+            self.nnodes = adj.shape[0]
+
+        self.target_node = target_node
+
+        if type(adj) is torch.Tensor:
+            self.ori_adj = utils.to_scipy(adj).tolil()
+            self.modified_adj = utils.to_scipy(adj).tolil()
+            self.ori_features = utils.to_scipy(features).tolil()
+            self.modified_features = utils.to_scipy(features).tolil()
+        else:
+            self.ori_adj = adj.tolil()
+            self.modified_adj = adj.tolil()
+            self.ori_features = features.tolil()
+            self.modified_features = features.tolil()
+
+
+        assert n_perturbations > 0, "need at least one perturbation"
+
+        # adj_norm = utils.normalize_adj_tensor(modified_adj, sparse=True)
+        self.adj_norm = utils.normalize_adj(self.modified_adj)
+        self.W = self.get_linearized_weight()
+
+        logits = (self.adj_norm @ self.adj_norm @ self.modified_features @ self.W )[target_node]  # 是一个典型的图卷积网络（GCN）前向传播计算过程，结合了邻接矩阵归一化、特征传播和参数化权重矩阵的线性变换
+
+        self.label_u = labels[target_node]
+        label_target_onehot = np.eye(int(self.nclass))[labels[target_node]]
+        best_wrong_class = (logits - 1000*label_target_onehot).argmax()
+        surrogate_losses = [logits[labels[target_node]] - logits[best_wrong_class]]
+
+        if verbose:
+            print("##### Starting attack #####")
+            print("##### Attack only using structure perturbations #####")
+            print("##### Performing {} perturbations #####".format(n_perturbations))
+
+
+        self.potential_edges= np.array([[target_node, value] for value in self.matching_index if self.modified_adj[tuple([target_node, value])].astype("int32") == 1]).astype("int32")
+        if len(self.potential_edges) == 0:
+            self.potential_edges = np.array([[target_node, value] for value in self.matching_index]).astype("int32")
+            # return None
 
         for _ in range(n_perturbations):
             if verbose:

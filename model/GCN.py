@@ -1,0 +1,307 @@
+#!/usr/bin/env python
+# coding:utf-8
+"""
+# @Time     : 2025/6/20 15:22
+# @Author   : Yu Zhang
+# @Email    : yuzhang@cs.aau.dk
+# @File     : GCN.py
+# @Software : PyCharm
+# @Desc     :
+"""
+import math
+import os
+import sys
+import time
+
+import torch.nn as nn
+import torch
+from torch_geometric.explain import Explainer, GNNExplainer
+from torch_geometric.nn import GCNConv
+from torch_geometric.data import Data
+from torch.nn.parameter import Parameter
+from scipy.sparse import issparse
+import scipy.sparse as sp
+from deeprobust.graph.data import Dataset
+import numpy as np
+from torch_geometric.utils import k_hop_subgraph, add_self_loops, subgraph
+from deeprobust.graph.defense import GCN
+from config.config import HIDDEN_CHANNELS, DROP_OUT, WITH_BIAS
+
+
+def GCN_model(adj, features, labels, device, idx_train, idx_val, target_gcn=None):
+    """
+    GCN model
+    :param adj:
+    :param features:
+    :param labels:
+    :param device:
+    :param idx_train:
+    :param idx_val:
+    :param target_gcn:
+    :return:
+    """
+    if target_gcn is None:
+        target_gcn = GCN(nfeat=features.shape[1],
+                         nhid=HIDDEN_CHANNELS,
+                         nclass=labels.max().item() + 1,
+                         dropout=DROP_OUT,
+                         device=device,
+                         with_bias=WITH_BIAS)
+        target_gcn = target_gcn.to(device)
+        target_gcn.fit(features, adj, labels, idx_train, idx_val, patience=30)
+    else:
+        pass
+    target_gcn.eval()
+    output = target_gcn.predict()
+    return target_gcn, output
+
+
+class GraphConvolution(nn.Module):
+    """
+    Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
+    """
+
+    def __init__(self, in_features, out_features, bias=True):
+        super(GraphConvolution, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = Parameter(torch.FloatTensor(in_features, out_features))
+        if bias:
+            self.bias = Parameter(torch.FloatTensor(out_features))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1. / math.sqrt(self.weight.size(1))
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, adj):
+        support = torch.mm(input, self.weight)
+        output = torch.spmm(adj, support)
+        if self.bias is not None:
+            return output + self.bias
+        else:
+            return output
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' \
+            + str(self.in_features) + ' -> ' \
+            + str(self.out_features) + ')'
+
+
+class PyGCompatibleGCN(nn.Module):
+    """
+    2-layer GCN used in GNN Explainer for cora tasks
+    """
+
+    def __init__(self, in_channels, hidden_channels, out_channels, dropout, bias=True):
+        super().__init__()
+        self.conv1 = GCNConv(in_channels, hidden_channels, bias=bias)  # 强制启用偏置
+        self.conv2 = GCNConv(hidden_channels, out_channels, bias=bias)
+        self.lin = nn.Linear(hidden_channels + hidden_channels, out_channels)
+        self.dropout = dropout
+
+    def forward(self, x, edge_index):
+        edge_index, _ = add_self_loops(edge_index, num_nodes=x.size(0))
+        x = self.conv1(x, edge_index).relu()
+        x = self.conv2(x, edge_index)
+        return torch.log_softmax(x, dim=1)
+
+    def node_embeddings(self, sub_x, sub_edge_index):
+        # edge_index, _ = add_self_loops(sub_edge_index, num_nodes=sub_x.size(0))
+        x = self.conv1(sub_x, sub_edge_index).relu()
+        node_embeddings = self.conv2(x, sub_edge_index)
+        return node_embeddings
+
+    def graph_embeddings(self, node_embeddings):
+        emb = torch.mean(node_embeddings, dim=0)
+        # emb = emb / torch.norm(emb)  # Key modification: L2 normalization
+        return emb
+
+
+def transfer_weights(dr_model, pyg_model):
+    print("PyG模型结构验证:")
+    print(f"conv1.lin存在: {hasattr(pyg_model.conv1, 'lin')}")  # 应为True
+    print(f"conv1.lin.weight形状: {pyg_model.conv1.lin.weight.shape}")
+    print(f"DeepRobust gc1.weight形状: {dr_model.gc1.weight.shape}")
+    """ 处理权重矩阵转置 + 偏置安全迁移 """
+    # 第一层权重转置 (1433,16) -> (16,1433)
+    pyg_model.conv1.lin.weight.data = dr_model.gc1.weight.data.t().clone()
+
+    # 安全处理偏置
+    if hasattr(pyg_model.conv1.lin, 'bias') and pyg_model.conv1.lin.bias is not None:
+        pyg_model.conv1.lin.bias.data.zero_()
+        if hasattr(dr_model.gc1, 'bias') and dr_model.gc1.bias is not None:
+            pyg_model.conv1.lin.bias.data.copy_(dr_model.gc1.bias.data)
+
+    # 第二层权重转置 (16,7) -> (7,16)
+    pyg_model.conv2.lin.weight.data = dr_model.gc2.weight.data.t().clone()
+
+    if hasattr(pyg_model.conv2.lin, 'bias') and pyg_model.conv2.lin.bias is not None:
+        pyg_model.conv2.lin.bias.data.zero_()
+        if hasattr(dr_model.gc2, 'bias') and dr_model.gc2.bias is not None:
+            pyg_model.conv2.lin.bias.data.copy_(dr_model.gc2.bias.data)
+    return pyg_model
+
+# def transfer_weights(dr_model, pyg_model):
+#     print("PyG模型结构验证:")
+#     print(f"conv1.lin.weight形状: {pyg_model.conv1.weight.shape}")
+#     print(f"DeepRobust gc1.weight形状: {dr_model.gc1.weight.shape}")
+#     """ 处理权重矩阵转置 + 偏置安全迁移 """
+#     # 第一层权重转置 (1433,16) -> (16,1433)
+#     pyg_model.conv1.weight.data = dr_model.gc1.weight.data.clone()
+#
+#     # 安全处理偏置
+#     if pyg_model.conv1.bias is not None:
+#         pyg_model.conv1.bias.data.zero_()
+#         if hasattr(dr_model.gc1, 'bias') and dr_model.gc1.bias is not None:
+#             pyg_model.conv1.bias.data.copy_(dr_model.gc1.bias.data)
+#
+#     # 第二层权重转置 (16,7) -> (7,16)
+#     pyg_model.conv2.weight.data = dr_model.gc2.weight.data.clone()
+#
+#     # 安全处理偏置
+#     if pyg_model.conv2.bias is not None:
+#         pyg_model.conv2.bias.data.zero_()
+#         if hasattr(dr_model.gc2, 'bias') and dr_model.gc2.bias is not None:
+#             pyg_model.conv2.bias.data.copy_(dr_model.gc2.bias.data)
+#
+#     return pyg_model
+
+
+def adj_to_edge_index(adj):
+    """
+    transfer adjacency matrix in deeprobust data to edge_index in pyg data
+    :param adj:
+    :return:
+    """
+    coo_adj = sp.coo_matrix(adj)
+    # 使用np.vstack提高效率
+    edge_array = np.vstack([coo_adj.row, coo_adj.col])
+    return torch.tensor(edge_array, dtype=torch.long)
+
+
+def dr_data_to_pyg_data(adj, features, labels):
+    """
+    transfer deeprobust data to pyg data
+    :return:
+    """
+    edge_index = adj_to_edge_index(adj)
+    features_dense = features.toarray() if issparse(features) else features
+    pyg_data = Data(
+        x=torch.tensor(features_dense, dtype=torch.float),
+        edge_index=edge_index,
+        adj=torch.tensor(adj.toarray(), dtype=torch.float) if str(type(adj)) != "<class 'torch.Tensor'>" else adj,
+        y=torch.tensor(labels)
+    )
+    return pyg_data
+
+
+if __name__ == '__main__':
+    # Set up paths
+    base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, base_path)
+
+    # Load deeprobust data
+    device = "cpu"
+    dataset_name = 'cora'
+    data_robust = Dataset(root=base_path + '/dataset', name=dataset_name)
+    adj, features, labels = data_robust.adj, data_robust.features, data_robust.labels
+    idx_train, idx_val, idx_test = data_robust.idx_train, data_robust.idx_val, data_robust.idx_test
+
+    # 初始化PyG模型
+    print(f"特征矩阵类型: {type(features)}")  # 应为scipy.sparse.csr.csr_matrix
+    print(f"邻接矩阵类型: {type(adj)}")  # 应为scipy.sparse.csr.csr_matrix
+    pyg_gcn = PyGCompatibleGCN(
+        in_channels=features.shape[1],
+        hidden_channels=16,
+        out_channels=labels.max().item() + 1,
+        dropout=DROP_OUT
+    )
+    pyg_gcn = pyg_gcn.to(device)
+
+    # 迁移参数
+    dr_trained_model, output = GCN_model(adj, features, labels, device, idx_train, idx_val)
+    pyg_model = transfer_weights(dr_trained_model, pyg_gcn)
+
+    # 创建PyG Data对象
+    pyg_data = dr_data_to_pyg_data(adj, features, labels)
+
+    # 预测一致性检查
+    # dr_pred = dr_trained_model.predict(features, adj)
+    dr_logits = torch.tensor(output, device=device)  # 确保同设备
+    dr_pred = dr_logits.argmax(dim=1)
+
+    pyg_gcn.eval()
+    pyg_logits = pyg_gcn.forward(pyg_data.x, pyg_data.edge_index)
+    pyg_pred = pyg_logits.argmax(dim=1)
+
+    # 构建子图向量
+    # target_nodes = [5, 6, 7, 8]
+    # sub_x = pyg_data.x = pyg_data.x[target_nodes]
+    # sub_edge_index, _ = subgraph(
+    #     subset=target_nodes,
+    #     edge_index=pyg_data.edge_index,
+    #     relabel_nodes=True  # 关键：重映射节点ID[9](@ref)
+    # )
+    # node_embeddings = pyg_gcn.node_embeddings(sub_x, sub_edge_index)
+    # graph_embeddings = pyg_gcn.graph_embeddings(node_embeddings)
+
+    accuracy = (dr_pred == pyg_pred).float().mean()
+    print(f"验证集预测一致性: {accuracy.item() * 100:.2f}%")
+
+    # # Create explainer (using PyG-formatted data)
+    # explainer = Explainer(
+    #     model=pyg_gcn,
+    #     algorithm=GNNExplainer(
+    #         epochs=100,  # 减少训练轮次
+    #         lr=0.1,  # 提高学习率
+    #         log=False,  # 禁用日志
+    #         coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # 添加正则化防止梯度爆炸
+    #     ),
+    #     explanation_type='model',
+    #     node_mask_type='attributes',
+    #     edge_mask_type='object',
+    #     model_config=dict(
+    #         mode='multiclass_classification',
+    #         task_level='node',
+    #         return_type='log_probs'
+    #     )
+    # )
+    #
+    # start_time = time.time()
+    # target_node = 1544
+    # # generate explanation for target node from specified explainer
+    # subset, edge_index_sub, mapping, _ = k_hop_subgraph(
+    #     node_idx=target_node,
+    #     num_hops=3,
+    #     edge_index=pyg_data.edge_index,
+    #     relabel_nodes=True,
+    #     num_nodes=pyg_data.num_nodes
+    # )
+    #
+    # # 创建子图特征
+    # x_sub = pyg_data.x[subset]
+    #
+    # # 执行解释
+    # explanation = explainer(
+    #     x=x_sub,
+    #     edge_index=edge_index_sub,
+    #     index=mapping[0]
+    # )
+    #
+    # # explanation = explainer(
+    # #     x=pyg_data.x,
+    # #     edge_index=pyg_data.edge_index,
+    # #     index=1544
+    # # )
+    #
+    # # get mask of edges an nodes
+    # edge_mask = explanation.edge_mask
+    # node_mask = explanation.node_mask
+    #
+    # elapsed = time.time() - start_time
+    # print(f"explainer generates results in {elapsed:.4f}s!")

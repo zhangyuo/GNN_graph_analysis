@@ -20,11 +20,7 @@ from torch_geometric.data import Data
 from torch_geometric.explain import Explainer, GNNExplainer
 from torch_geometric.utils import k_hop_subgraph
 
-from model.gcn_model import GCN_model
-import scipy.sparse as sp
-
-from model.model_transfer import PyGCompatibleGCN, transfer_weights, adj_to_edge_index
-import matplotlib.pyplot as plt
+from model.GCN import GCN_model, PyGCompatibleGCN, transfer_weights, adj_to_edge_index
 
 from utilty.explanation_visualization import explanation_subgraph_visualization
 

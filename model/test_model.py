@@ -23,7 +23,7 @@ from deeprobust.graph.data import Dataset
 import numpy as np
 from torch_geometric.utils import k_hop_subgraph, add_self_loops
 
-from model.gcn_model import GCN_model
+from model.GCN import GCN_model
 
 
 class PyGCompatibleGCN(torch.nn.Module):

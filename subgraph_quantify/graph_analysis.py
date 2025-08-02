@@ -28,8 +28,7 @@ from attack.GOttack.OrbitAttack import OrbitAttack
 from attack.GOttack.orbit_table_generator import OrbitTableGenerator
 from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model, evasion_test_acc_GCN
 from instance_level_subgraph.GNNExplainer_subgraph.generate_gnnexplainer_subgraph import gnnexplainer_subgraph
-from model.gcn_model import GCN_model
-from model.model_transfer import adj_to_edge_index, PyGCompatibleGCN, transfer_weights, dr_data_to_pyg_data
+from model.GCN import GCN_model, adj_to_edge_index, PyGCompatibleGCN, transfer_weights, dr_data_to_pyg_data
 from subgraph_quantify.sematic_similarity.graph_embedding_vector import GATSimilarity, compute_graph_similarity
 from subgraph_quantify.structual_similarity.graph_edit_distance import compute_graph_edit_distance
 from subgraph_quantify.structual_similarity.maximum_commom_subgraph import maximum_common_subgraph
@@ -40,6 +39,7 @@ from torch_geometric.utils import from_networkx, subgraph
 
 from utilty.clean_subgraph_visualization import visualize_restricted_clean_subgraph
 from utilty.maximum_common_graph_visualization import mx_com_graph_view
+from config.config import HIDDEN_CHANNELS, DROP_OUT, WITH_BIAS, DROP_OUT
 
 
 def select_test_nodes(attack_type, explanation_type, idx_test, ori_output, labels):
@@ -367,9 +367,10 @@ def GCNtoPYG(gnn_model, device, features, labels):
     # initialize pyg gcn model
     pyg_gcn = PyGCompatibleGCN(
         in_channels=features.shape[1],
-        hidden_channels=16,
+        hidden_channels=HIDDEN_CHANNELS,
         out_channels=labels.max().item() + 1,
-        bias=True
+        dropout=DROP_OUT,
+        bias=WITH_BIAS
     )
     pyg_gcn = pyg_gcn.to(device)
 

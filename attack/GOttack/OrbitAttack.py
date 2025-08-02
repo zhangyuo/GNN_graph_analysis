@@ -24,7 +24,7 @@ from copy import deepcopy
 from numba import jit
 from torch import spmm
 
-from model.model_transfer import adj_to_edge_index
+from model.GCN import adj_to_edge_index
 
 
 class OrbitAttack(BaseAttack):

@@ -2,39 +2,10 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from deeprobust.graph.defense import GraphConvolution
 from torch.nn.parameter import Parameter
+from torch_geometric.utils import dense_to_sparse, to_dense_adj
 from utilty.utils import get_degree_matrix, create_symm_matrix_from_vec, create_vec_from_symm_matrix
-from torch_geometric.nn import GCNConv
-from model.GCN import GraphConvolution
-
-
-class GraphConvolutionPerturb(nn.Module):
-    """
-    Similar to GraphConvolution except includes P_hat
-    """
-
-    def __init__(self, in_features, out_features, bias=True):
-        super(GraphConvolutionPerturb, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = Parameter(torch.FloatTensor(in_features, out_features))
-        if bias is not None:
-            self.bias = Parameter(torch.FloatTensor(out_features))
-        else:
-            self.register_parameter('bias', None)
-
-    def forward(self, input, adj):
-        support = torch.mm(input, self.weight)
-        output = torch.spmm(adj, support)
-        if self.bias is not None:
-            return output + self.bias
-        else:
-            return output
-
-    def __repr__(self):
-        return self.__class__.__name__ + ' (' \
-            + str(self.in_features) + ' -> ' \
-            + str(self.out_features) + ')'
 
 
 class GCNCoraPerturb(nn.Module):
@@ -42,16 +13,17 @@ class GCNCoraPerturb(nn.Module):
     2-layer GCN used in GNN Explainer cora tasks
     """
 
-    def __init__(self, nfeat, nhid, nout, nclass, adj, dropout, beta, edge_additions=False):
+    def __init__(self, nfeat, nhid, nclass, adj, dropout, beta,gcn_layer, with_bias, edge_additions=False):
         super(GCNCoraPerturb, self).__init__()
         self.adj = adj
         self.nclass = nclass
         self.beta = beta
         self.num_nodes = self.adj.shape[0]
+        self.gcn_layer = gcn_layer
         self.edge_additions = edge_additions  # are edge additions included in perturbed matrix
 
         # P_hat needs to be symmetric ==> learn vector representing entries in upper/lower triangular matrix and use to populate P_hat later
-        self.P_vec_size = int((self.num_nodes * self.num_nodes - self.num_nodes) / 2) + self.num_nodes
+        self.P_vec_size = int((self.num_nodes * self.num_nodes - self.num_nodes) / 2) + self.num_nodes  # # 上三角元素数量
 
         if self.edge_additions:
             self.P_vec = Parameter(torch.FloatTensor(torch.zeros(self.P_vec_size)))
@@ -59,10 +31,14 @@ class GCNCoraPerturb(nn.Module):
             self.P_vec = Parameter(torch.FloatTensor(torch.ones(self.P_vec_size)))
 
         self.reset_parameters()
-
-        self.gc1 = GraphConvolutionPerturb(nfeat, nhid)
-        self.gc2 = GraphConvolution(nhid, nout)
-        self.lin = nn.Linear(nhid + nhid + nout, nclass)
+        if self.gcn_layer == 3:
+            self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
+            self.gc2 = GraphConvolution(nhid, nhid, with_bias=with_bias)
+            self.gc3 = GraphConvolution(nhid, nclass, with_bias=with_bias)
+            self.lin = nn.Linear(nhid + nhid + nclass, nclass)
+        else:
+            self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
+            self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
         self.dropout = dropout
 
     def reset_parameters(self, eps=10 ** -4):
@@ -82,41 +58,50 @@ class GCNCoraPerturb(nn.Module):
     def forward(self, x, sub_adj):
         self.sub_adj = sub_adj
         # Same as normalize_adj in utils.py except includes P_hat in A_tilde
-        self.P_hat_symm = create_symm_matrix_from_vec(self.P_vec, self.num_nodes)  # Ensure symmetry
+        self.P_hat_symm = create_symm_matrix_from_vec(self.P_vec, self.num_nodes)  # Ensure symmetry 向量→对称矩阵
 
         A_tilde = torch.FloatTensor(self.num_nodes, self.num_nodes)
         A_tilde.requires_grad = True
 
         if self.edge_additions:  # Learn new adj matrix directly
+            # 扰动后邻接矩阵
             A_tilde = F.sigmoid(self.P_hat_symm) + torch.eye(self.num_nodes)  # Use sigmoid to bound P_hat in [0,1]
         else:  # Learn P_hat that gets multiplied element-wise with adj -- only edge deletions
             A_tilde = F.sigmoid(self.P_hat_symm) * self.sub_adj + torch.eye(
                 self.num_nodes)  # Use sigmoid to bound P_hat in [0,1]
 
-        D_tilde = get_degree_matrix(A_tilde).detach()  # Don't need gradient of this
+        D_tilde = get_degree_matrix(A_tilde).detach()  # Don't need gradient of this 度矩阵
         # Raise to power -1/2, set all infs to 0s
         D_tilde_exp = D_tilde ** (-1 / 2)
         D_tilde_exp[torch.isinf(D_tilde_exp)] = 0
 
         # Create norm_adj = (D + I)^(-1/2) * (A + I) * (D + I) ^(-1/2)
-        norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)
+        norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)  # 归一化邻接矩阵
 
-        x1 = F.relu(self.gc1(x, norm_adj))
-        x1 = F.dropout(x1, self.dropout, training=self.training)
-        x2 = self.gc2(x1, norm_adj)
-        x = self.lin(torch.cat((x1, x2), dim=1))
-        return F.log_softmax(x, dim=1)
+        if self.gcn_layer == 3:
+            x1 = F.relu(self.gc1(x, norm_adj))
+            x1 = F.dropout(x1, self.dropout, training=self.training)
+            x2 = F.relu(self.gc2(x1, norm_adj))
+            x2 = F.dropout(x2, self.dropout, training=self.training)
+            x3 = self.gc3(x2, norm_adj)
+            x = self.lin(torch.cat((x1, x2, x3), dim=1))
+            return F.log_softmax(x, dim=1)
+        else:
+            x1 = F.relu(self.gc1(x, norm_adj))
+            x1 = F.dropout(x1, self.dropout, training=self.training)
+            x2 = self.gc2(x1, norm_adj)
+            return F.log_softmax(x2, dim=1)
 
     def forward_prediction(self, x):
         # Same as forward but uses P instead of P_hat ==> non-differentiable
-        # but needed for actual predictions
+        # but needed for actual predictions  双模式预测机制
 
-        self.P = (F.sigmoid(self.P_hat_symm) >= 0.5).float()  # threshold P_hat
+        self.P = (F.sigmoid(self.P_hat_symm) >= 0.5).float()  # threshold P_hat 二值化阈值
 
         if self.edge_additions:
             A_tilde = self.P + torch.eye(self.num_nodes)
         else:
-            A_tilde = self.P * self.adj + torch.eye(self.num_nodes)
+            A_tilde = self.P * self.adj + torch.eye(self.num_nodes)  # 离散化邻接矩阵
 
         D_tilde = get_degree_matrix(A_tilde)
         # Raise to power -1/2, set all infs to 0s
@@ -126,14 +111,25 @@ class GCNCoraPerturb(nn.Module):
         # Create norm_adj = (D + I)^(-1/2) * (A + I) * (D + I) ^(-1/2)
         norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)
 
-        x1 = F.relu(self.gc1(x, norm_adj))
-        x1 = F.dropout(x1, self.dropout, training=self.training)
-        x2 = self.gc2(x1, norm_adj)
-        x = self.lin(torch.cat((x1, x2), dim=1))
-        return F.log_softmax(x, dim=1), self.P
+        if self.gcn_layer == 3:
+            x1 = F.relu(self.gc1(x, norm_adj))
+            x1 = F.dropout(x1, self.dropout, training=self.training)
+            x2 = F.relu(self.gc2(x1, norm_adj))
+            x2 = F.dropout(x2, self.dropout, training=self.training)
+            x3 = self.gc3(x2, norm_adj)
+            x = self.lin(torch.cat((x1, x2, x3), dim=1))
+            return F.log_softmax(x, dim=1), self.P
+        else:
+            x1 = F.relu(self.gc1(x, norm_adj))
+            x1 = F.dropout(x1, self.dropout, training=self.training)
+            x2 = self.gc2(x1, norm_adj)
+            return F.log_softmax(x2, dim=1), self.P
 
     def loss(self, output, y_pred_orig, y_pred_new_actual):
-        pred_same = (y_pred_new_actual == y_pred_orig).float()
+        """
+        反事实损失函数
+        """
+        pred_same = (y_pred_new_actual == y_pred_orig).float()  # 当预测未改变时梯度为0（停止优化）
 
         # Need dim >=2 for F.nll_loss to work
         output = output.unsqueeze(0)
@@ -146,9 +142,9 @@ class GCNCoraPerturb(nn.Module):
         cf_adj.requires_grad = True  # Need to change this otherwise loss_graph_dist has no gradient
 
         # Want negative in front to maximize loss instead of minimizing it to find CFs
-        loss_pred = - F.nll_loss(output, y_pred_orig)
-        loss_graph_dist = sum(sum(abs(cf_adj - self.adj))) / 2  # Number of edges changed (symmetrical)
+        loss_pred = - F.nll_loss(output, y_pred_orig)  # 预测差异损失（负号表示最大化差异）
+        loss_graph_dist = sum(sum(abs(cf_adj - self.adj))) / 2  # Number of edges changed (symmetrical) 图结构变化量（边改变数）
 
         # Zero-out loss_pred with pred_same if prediction flips
-        loss_total = pred_same * loss_pred + self.beta * loss_graph_dist
+        loss_total = pred_same * loss_pred + self.beta * loss_graph_dist  # 复合损失, β：平衡预测改变与图修改量的超参数
         return loss_total, loss_pred, loss_graph_dist, cf_adj

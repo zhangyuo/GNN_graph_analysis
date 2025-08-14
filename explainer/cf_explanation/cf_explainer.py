@@ -8,6 +8,9 @@ import torch.nn.functional as F
 import numpy as np
 import torch.optim as optim
 from torch.nn.utils import clip_grad_norm
+from torch_geometric.utils import to_dense_adj
+from tqdm import tqdm
+
 from utilty.utils import get_degree_matrix, normalize_adj
 from explainer.cf_explanation.gcn_perturb import GCNCoraPerturb
 
@@ -18,7 +21,7 @@ class CFExplainer:
     """
 
     def __init__(self, model, sub_adj, sub_feat, n_hid, dropout,
-                 sub_labels, y_pred_orig, num_classes, beta, device):
+                 sub_labels, y_pred_orig, num_classes, beta, device, gcn_layer,with_bias):
         super(CFExplainer, self).__init__()
         self.model = model
         self.model.eval()
@@ -31,15 +34,16 @@ class CFExplainer:
         self.beta = beta
         self.num_classes = num_classes
         self.device = device
+        self.gcn_layer=gcn_layer
+        self.with_bias = with_bias
 
         # Instantiate CF model class, load weights from original model
-        self.cf_model = GCNCoraPerturb(self.sub_feat.shape[1], n_hid, n_hid,
-                                            self.num_classes, self.sub_adj, dropout, beta)
+        self.cf_model = GCNCoraPerturb(self.sub_feat.shape[1], n_hid, self.num_classes, self.sub_adj, dropout, beta,
+                                       gcn_layer, with_bias=with_bias)  # 加载可扰动模型
 
-        self.cf_model.load_state_dict(self.model.state_dict(), strict=False)
-        gnn_model.load_state_dict(torch.load(file_path))
+        self.cf_model.load_state_dict(self.model.state_dict(), strict=False)  # 继承原模型参数
 
-        # Freeze weights from original model in cf_model
+        # Freeze weights from original model in cf_model 冻结原始参数，仅训练扰动矩阵
         for name, param in self.cf_model.named_parameters():
             if name.endswith("weight") or name.endswith("bias"):
                 param.requires_grad = False
@@ -66,7 +70,7 @@ class CFExplainer:
         best_cf_example = []
         best_loss = np.inf
         num_cf_examples = 0
-        for epoch in range(num_epochs):
+        for epoch in tqdm(range(num_epochs)):
             new_example, loss_total = self.train(epoch)
             if new_example != [] and loss_total < best_loss:
                 best_cf_example.append(new_example)
@@ -83,8 +87,9 @@ class CFExplainer:
 
         # output uses differentiable P_hat ==> adjacency matrix not binary, but needed for training
         # output_actual uses thresholded P ==> binary adjacency matrix ==> gives actual prediction
-        output = self.cf_model.forward(self.x, self.A_x)
-        output_actual, self.P = self.cf_model.forward_prediction(self.x)
+        # 前向传播（包含连续和二值化预测）
+        output = self.cf_model.forward(self.x, self.A_x)  # 可微分预测
+        output_actual, self.P = self.cf_model.forward_prediction(self.x)  # 离散预测
 
         # Need to use new_idx from now on since sub_adj is reindexed
         y_pred_new = torch.argmax(output[self.new_idx])
@@ -92,7 +97,7 @@ class CFExplainer:
 
         # loss_pred indicator should be based on y_pred_new_actual NOT y_pred_new!
         loss_total, loss_pred, loss_graph_dist, cf_adj = self.cf_model.loss(output[self.new_idx], self.y_pred_orig,
-                                                                            y_pred_new_actual)
+                                                                            y_pred_new_actual)  # 计算复合损失
         loss_total.backward()
         clip_grad_norm(self.cf_model.parameters(), 2.0)
         self.cf_optimizer.step()
@@ -109,11 +114,14 @@ class CFExplainer:
         print(" ")
         cf_stats = []
         if y_pred_new_actual != self.y_pred_orig:
-            cf_stats = [self.node_idx.item(), self.new_idx.item(),
+            # header = ["node_idx", "new_idx", "cf_adj", "sub_adj", "y_pred_orig", "y_pred_new", "y_pred_new_actual",
+            #             "label", "num_nodes", "loss_total", "loss_pred", "loss_graph_dist"]
+            cf_stats = [self.node_idx, self.new_idx,
                         cf_adj.detach().numpy(), self.sub_adj.detach().numpy(),
                         self.y_pred_orig.item(), y_pred_new.item(),
-                        y_pred_new_actual.item(), self.sub_labels[self.new_idx].numpy(),
+                        y_pred_new_actual.item(), self.sub_labels[self.new_idx].item(),
                         self.sub_adj.shape[0], loss_total.item(),
-                        loss_pred.item(), loss_graph_dist.item()]
+                        loss_pred.item(), loss_graph_dist.item(),
+                        self.sub_labels,]
 
         return (cf_stats, loss_total.item())

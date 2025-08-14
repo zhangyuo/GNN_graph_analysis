@@ -48,7 +48,7 @@ def mx_com_graph_view(target_node, G1, G2, mcs, mapping, path, graph_one_name="G
                             font_weight='normal', font_color='black')
 
     # Add edge labels with weights and types
-    edge_labels2 = {(u, v): f"{round(float(d.get('weight', '')), 2)}{d.get('type', '')}"
+    edge_labels2 = {(u, v): f"{round(float(d.get('weight', '-0')), 2)}{d.get('type', '')}"
                     for u, v, d in G2.edges(data=True)}
     nx.draw_networkx_edge_labels(G2, pos2, edge_labels=edge_labels2,
                                  font_size=8, bbox=dict(alpha=0.1))

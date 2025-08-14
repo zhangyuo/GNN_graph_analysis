@@ -122,9 +122,11 @@ dataset/
 
 # model file
 #*.pkl
+model_save
 
 # results
 results_*
+results
 
 *.ipynb
 

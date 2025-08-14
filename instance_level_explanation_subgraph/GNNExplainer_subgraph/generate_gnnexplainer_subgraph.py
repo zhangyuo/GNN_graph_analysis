@@ -18,8 +18,8 @@ from torch_sparse import SparseTensor
 from utilty.explanation_visualization import explanation_subgraph_visualization
 
 
-def gnnexplainer_subgraph(explainer, pyg_data, target_node, labels, features, max_nodes,
-                          instance_level_explanation_subgraph_path, attack_subgraph_edge_num, threshold=0.9,
+def gnnexplainer_subgraph(explainer, pyg_data, target_node, labels, features,
+                          instance_level_explanation_subgraph_path, attack_subgraph_edge_num,
                           ex_type='clean'):
     start_time = time.time()
     # generate explanation for target node from specified explainer

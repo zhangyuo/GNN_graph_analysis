@@ -20,7 +20,8 @@ from torch_geometric.data import Data
 from torch_geometric.explain import Explainer, GNNExplainer
 from torch_geometric.utils import k_hop_subgraph
 
-from model.GCN import GCN_model, PyGCompatibleGCN, transfer_weights, adj_to_edge_index
+from config.config import DROPOUT, DEVICE
+from model.GCN import GCN_model, PyGCompatibleGCN, transfer_weights, adj_to_edge_index, dr_data_to_pyg_data, GCNtoPYG
 
 from utilty.explanation_visualization import explanation_subgraph_visualization
 
@@ -38,36 +39,14 @@ data_robust = Dataset(root=base_path + '/dataset', name=dataset_name)
 adj, features, labels = data_robust.adj, data_robust.features, data_robust.labels
 idx_train, idx_val, idx_test = data_robust.idx_train, data_robust.idx_val, data_robust.idx_test
 
-# # Convert adjacency matrix to PyG's edge_index [Critical step]
-# coo_adj = sp.coo_matrix(adj)  # Convert to COO format
-# coo_fea = sp.coo_matrix(features)
-# fea_indices = torch.tensor([coo_fea.row, coo_fea.col], dtype=torch.long)
-# fea_values = torch.tensor(coo_fea.data, dtype=torch.float)
-# fea_shape = coo_fea.shape
-#
-# edge_index = torch.tensor([coo_adj.row, coo_adj.col], dtype=torch.long)  # Extract row and column indices
-# values = torch.tensor(coo_fea.data, dtype=torch.float)
+# Initialize model (using deeprobust adjacency matrix)
+gnn_model, output = GCN_model(adj, features, labels, device, idx_train, idx_val)
 
 # Create PyG Data object
-edge_index = adj_to_edge_index(adj)
-features_dense = features.toarray() if issparse(features) else features
-pyg_data = Data(
-    x=torch.tensor(features_dense, dtype=torch.float),
-    edge_index=edge_index,
-    y=torch.tensor(labels)
-)
+pyg_data = dr_data_to_pyg_data(adj, features, labels)
 
 # initialize pyg model
-pyg_gcn = PyGCompatibleGCN(
-    in_channels=features.shape[1],
-    hidden_channels=16,
-    out_channels=labels.max().item() + 1
-)
-pyg_gcn = pyg_gcn.to(device)
-
-# Initialize model (using deeprobust adjacency matrix)
-dr_trained_model, output = GCN_model(adj, features, labels, device, idx_train, idx_val)
-pyg_gcn = transfer_weights(dr_trained_model, pyg_gcn)
+pyg_gcn = GCNtoPYG(gnn_model, device, features, labels)
 
 # Create explainer (using PyG-formatted data)
 explainer = Explainer(

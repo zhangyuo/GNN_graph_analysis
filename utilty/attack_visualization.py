@@ -4,7 +4,7 @@
 # @Time     : 2025/6/19 17:53
 # @Author   : Yu Zhang
 # @Email    : yuzhang@cs.aau.dk
-# @File     : visual_utility.py
+# @File     : attack_visualization.py
 # @Software : PyCharm
 # @Desc     :
 """
@@ -17,7 +17,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as sp
-from scipy.sparse import issparse
+from scipy.sparse import issparse, csr_matrix
 from deeprobust.graph.utils import *
 from matplotlib.patches import Patch
 import matplotlib.colors as mcolors
@@ -35,7 +35,8 @@ def adj_to_nx(adj, features, labels=None):
     if issparse(adj):
         adj = adj.tocoo()
     else:
-        adj = None
+        adj = csr_matrix(adj)
+        adj = adj.tocoo()
         print("Warning: adjacency matrix is not sparse")
     G = nx.Graph()
 
@@ -58,7 +59,7 @@ def generate_timestamp_key():
     [16-digit microsecond timestamp] + [3-digit random number]
     """
     # Get microsecond timestamp (16-digit integer)
-    timestamp = int(time.time() * 1e6)
+    timestamp = int(time.time() * 1e0)
 
     # Generate 3-digit random number (000-999)
     random_suffix = random.randint(0, 999)
@@ -327,8 +328,6 @@ def visualize_attack_subgraph(
         changed_label,
         target_node,
         attack_state,
-        k_hop=2,
-        max_nodes=20,
         title="Visualization for Adversarial Attack Subgraph",
         pic_path=None
 ):

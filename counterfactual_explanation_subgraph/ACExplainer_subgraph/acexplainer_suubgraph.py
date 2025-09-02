@@ -32,7 +32,7 @@ import torch.nn.functional as F
 def generate_ac_explanation(target_node: int,
                             data,
                             pyg_data,
-                            model,
+                            gnn_model,
                             output,
                             gcn_layer: int = 2,
                             attack_method: str = "GOttack",
@@ -40,7 +40,6 @@ def generate_ac_explanation(target_node: int,
                             device: str = "cuda",
                             nhid: int = 16,
                             dropout: float=0.5,
-                            beta: float=0.5,
                             with_bias: bool=True):
     """
     生成AC-Explainer解释
@@ -48,7 +47,7 @@ def generate_ac_explanation(target_node: int,
     # 1. 提取目标节点的l-hop子图
     node_idx, edge_index, mapping, _ = k_hop_subgraph(
         node_idx=target_node,
-        num_hops=gcn_layer + 1,
+        num_hops=gcn_layer + 1, # 覆盖GCN的感受野
         edge_index=pyg_data.edge_index,
         relabel_nodes=True,
         num_nodes=pyg_data.edge_index.max() + 1
@@ -65,10 +64,9 @@ def generate_ac_explanation(target_node: int,
     # extended_adj, original_adj_mask = networkx_create_extended_adj(extended_nodes, pyg_data.edge_index)
     adj_dense = data.adj.toarray()
     extended_adj = adj_dense[np.ix_(extended_nodes,extended_nodes)]
-    extended_adj = torch.tensor(extended_adj, dtype=torch.float)
+    extended_adj = torch.tensor(extended_adj, dtype=torch.float, requires_grad=True)
     # 原始掩码矩阵与邻接矩阵相同
     original_adj_mask = extended_adj.clone()
-
 
     # 5. 提取扩展子图的特征
     extended_feat = pyg_data.x[extended_nodes]
@@ -76,20 +74,23 @@ def generate_ac_explanation(target_node: int,
     # 6. 找到目标节点在扩展子图中的新索引
     target_node_idx = extended_nodes.index(target_node)
 
-    # test model log-probability output
+    # test model log-probability output is same to original prediction output
     print("Output original model, full adj: {}".format(output[target_node]))
     norm_sub_adj = normalize_adj(extended_adj)
-    print("Output original model, sub adj: {}".format(model.forward(extended_feat, norm_sub_adj)[target_node_idx]))
+    print("Output original model, sub adj: {}".format(gnn_model.forward(extended_feat, norm_sub_adj)[target_node_idx]))
 
     # 7. 创建扰动模型
     perturb_model = GCNPerturb(
+        gnn_model,
         nfeat=extended_feat.size(1),
         nhid=nhid,
         nclass=data.labels.max().item() + 1,
         extended_sub_adj=extended_adj,
         target_node=target_node_idx,
         original_adj_mask=original_adj_mask,
-        dropout=0.5
+        dropout=dropout,
+        gcn_layer=gcn_layer,
+        with_bias=with_bias
     ).to(device)
 
     # 8. 创建解释器
@@ -266,26 +267,27 @@ if __name__ == '__main__':
     test_cf_examples = []
     cfexp_subgraph = {}
     for target_node in tqdm(target_node_list):
-        subgraph, cf_example = generate_ac_explanation(target_node, data, pyg_data, gnn_model, pre_output, gcn_layer,
-                                                       attack_method, top_t, device, nhid)
-        print("Time for {} epochs of one example: {:.4f}min".format(NUM_EPOCHS, (time.time() - start) / 60))
-        cfexp_subgraph[target_node] = subgraph
-        test_cf_examples.append(cf_example)
-    print("Total time elapsed: {:.4f}s".format((time.time() - start) / 60))
-    print("Number of CF examples found: {}/{}".format(len(test_cf_examples), len(target_node_list)))
-
-    with open(counterfactual_explanation_subgraph_path + "/cfexp_subgraph.pickle", "wb") as fw:
-        pickle.dump(cfexp_subgraph, fw)
-
-    # Save CF examples in test set
-    with safe_open(
-            "../results/{}/{}/{}_cf_examples_gcnlayer{}_lr{}_beta{}_mom{}_epochs{}_seed{}".format(DATA_NAME,
-                                                                                                  OPTIMIZER,
-                                                                                                  DATA_NAME,
-                                                                                                  GCN_LAYER,
-                                                                                                  LEARNING_RATE,
-                                                                                                  BETA,
-                                                                                                  N_Momentum,
-                                                                                                  NUM_EPOCHS,
-                                                                                                  SEED_NUM), "wb") as f:
-        pickle.dump(test_cf_examples, f)
+        cf_example = generate_ac_explanation(target_node, data, pyg_data, gnn_model, pre_output, gcn_layer,
+                                                       attack_method, top_t, device, nhid, dropout, with_bias)
+        print(cf_example)
+        print("Time for {} epochs of one example: {:.4f}min".format(200, (time.time() - start) / 60))
+    #     cfexp_subgraph[target_node] = None
+    #     test_cf_examples.append(cf_example)
+    # print("Total time elapsed: {:.4f}s".format((time.time() - start) / 60))
+    # print("Number of CF examples found: {}/{}".format(len(test_cf_examples), len(target_node_list)))
+    #
+    # with open(counterfactual_explanation_subgraph_path + "/cfexp_subgraph.pickle", "wb") as fw:
+    #     pickle.dump(cfexp_subgraph, fw)
+    #
+    # # Save CF examples in test set
+    # with safe_open(
+    #         "../results/{}/{}/{}_cf_examples_gcnlayer{}_lr{}_beta{}_mom{}_epochs{}_seed{}".format(DATA_NAME,
+    #                                                                                               OPTIMIZER,
+    #                                                                                               DATA_NAME,
+    #                                                                                               GCN_LAYER,
+    #                                                                                               LEARNING_RATE,
+    #                                                                                               BETA,
+    #                                                                                               N_Momentum,
+    #                                                                                               NUM_EPOCHS,
+    #                                                                                               SEED_NUM), "wb") as f:
+    #     pickle.dump(test_cf_examples, f)

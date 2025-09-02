@@ -82,8 +82,8 @@ class CFExplainer:
 
     def train(self, epoch):
         t = time.time()
-        self.cf_model.train()
-        self.cf_optimizer.zero_grad()
+        self.cf_model.eval()  # 反事实模型g训练阶段采用评估模式，冻结dropout和batchnorm
+        self.cf_optimizer.zero_grad() # 清空上一轮的梯度（避免累积）
 
         # output uses differentiable P_hat ==> adjacency matrix not binary, but needed for training
         # output_actual uses thresholded P ==> binary adjacency matrix ==> gives actual prediction
@@ -98,9 +98,9 @@ class CFExplainer:
         # loss_pred indicator should be based on y_pred_new_actual NOT y_pred_new!
         loss_total, loss_pred, loss_graph_dist, cf_adj = self.cf_model.loss(output[self.new_idx], self.y_pred_orig,
                                                                             y_pred_new_actual)  # 计算复合损失
-        loss_total.backward()
-        clip_grad_norm(self.cf_model.parameters(), 2.0)
-        self.cf_optimizer.step()
+        loss_total.backward()  # 计算当前梯度
+        clip_grad_norm(self.cf_model.parameters(), 2.0) # 裁剪梯度幅度
+        self.cf_optimizer.step() # 根据梯度更新参数
         print('Node idx: {}'.format(self.node_idx),
               'New idx: {}'.format(self.new_idx),
               'Epoch: {:04d}'.format(epoch + 1),

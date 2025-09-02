@@ -64,7 +64,7 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
                             sub_adj=sub_adj,
                             sub_feat=sub_feat,
                             n_hid=HIDDEN_CHANNELS,
-                            dropout=DROPOUT_CFEXP,
+                            dropout=DROPOUT,
                             sub_labels=sub_labels,
                             y_pred_orig=output.argmax(dim=1)[target_node],
                             num_classes=labels.max().item() + 1,
@@ -173,8 +173,8 @@ if __name__ == '__main__':
     for target_node in tqdm(target_node_list):
         edge_index = pyg_data.edge_index
         subgraph, cf_example = generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels, pre_output,
-                                                             gnn_model,
-                                                             device, idx_test, gcn_layer, with_bias)
+                                                             gnn_model, device, idx_test, gcn_layer, with_bias,
+                                                             counterfactual_explanation_subgraph_path)
         print("Time for {} epochs of one example: {:.4f}min".format(NUM_EPOCHS, (time.time() - start) / 60))
         cfexp_subgraph[target_node] = subgraph
         test_cf_examples.append(cf_example)

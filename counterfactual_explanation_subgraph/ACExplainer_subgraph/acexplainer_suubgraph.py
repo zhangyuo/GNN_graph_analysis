@@ -23,13 +23,12 @@ from tqdm import tqdm
 
 from config.config import *
 from explainer.ac_explanation.ac_explainer import ACExplainer
-from explainer.ac_explanation.gcn_perturb import GCNPerturb
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes
 import torch.nn.functional as F
 
 
-def generate_ac_explanation(target_node: int,
+def generate_acexplainer_subgraph(target_node: int,
                             data,
                             pyg_data,
                             gnn_model,
@@ -79,47 +78,56 @@ def generate_ac_explanation(target_node: int,
     norm_sub_adj = normalize_adj(extended_adj)
     print("Output original model, sub adj: {}".format(gnn_model.forward(extended_feat, norm_sub_adj)[target_node_idx]))
 
-    # 7. 创建扰动模型
-    perturb_model = GCNPerturb(
-        gnn_model,
-        nfeat=extended_feat.size(1),
-        nhid=nhid,
-        nclass=data.labels.max().item() + 1,
-        extended_sub_adj=extended_adj,
-        target_node=target_node_idx,
-        original_adj_mask=original_adj_mask,
-        dropout=dropout,
-        gcn_layer=gcn_layer,
-        with_bias=with_bias
-    ).to(device)
-
-    # 8. 创建解释器
+    # 7. 创建解释器
     explainer = ACExplainer(
-        model=perturb_model,
+        model=gnn_model,
+        target_node=target_node,
+        node_idx=target_node_idx,
         extended_sub_adj=extended_adj,
         sub_feat=extended_feat,
-        target_node=target_node_idx,
-        device=device
+        sub_labels=data.labels[extended_nodes],
+        y_pred_orig=output.argmax(dim=1)[target_node],
+        nclass=data.labels.max().item() + 1,
+        nhid=nhid,
+        dropout=dropout,
+        lambda_pred=LAMBDA_PRED,
+        lambda_dist=LAMBDA_DIST,
+        lambda_plau=LAMBDA_PLAU,
+        epoch=NUM_EPOCHS_AC,
+        optimizer=OPTIMIZER_AC,
+        n_momentum=N_Momentum_AC,
+        lr=LEARNING_RATE,
+        top_k=MAX_EDITS,
+        tau_plus=TAU_PLUS,
+        tau_minus=TAU_MINUS,
+        α1=α1,
+        α2=α2,
+        α3=α3,
+        α4=α4,
+        tau_c=TAU_C,
+        device=device,
+        gcn_layer=gcn_layer,
+        with_bias=with_bias
     )
 
-    # 10. 训练解释器
-    result = explainer.train_explanation(epochs=200)
+    # 8. 训练解释器
+    result = explainer.explain()
 
     if result is None:
         return {"error": "No valid counterfactual found"}
 
-    # 11. 映射回原始图索引
+    # 9. 映射回原始图索引
     added_edges = []
     removed_edges = []
 
     delta_A = result["delta_A"]
     for i in range(delta_A.size(0)):
         for j in range(i + 1, delta_A.size(1)):
-            if delta_A[i, j] > 0.5:  # 添加的边
+            if delta_A[i, j] > TAU_PLUS:  # 添加的边
                 orig_i = extended_nodes[i]
                 orig_j = extended_nodes[j]
                 added_edges.append((orig_i, orig_j))
-            elif delta_A[i, j] < -0.5:  # 删除的边
+            elif delta_A[i, j] < TAU_MINUS:  # 删除的边
                 orig_i = extended_nodes[i]
                 orig_j = extended_nodes[j]
                 removed_edges.append((orig_i, orig_j))
@@ -129,7 +137,8 @@ def generate_ac_explanation(target_node: int,
         "removed_edges": removed_edges,
         "original_pred": result["original_pred"],
         "new_pred": result["new_pred"],
-        "extended_nodes": extended_nodes
+        # "extended_nodes": extended_nodes,
+        # "cf_adj": result["cf_adj"]
     }
 
 
@@ -259,7 +268,7 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    target_node_list = target_node_list[100:101]
+    target_node_list = target_node_list[104:105]
 
     ######################### GNN explainer generate  #########################
     # Get CF examples in test set
@@ -267,7 +276,7 @@ if __name__ == '__main__':
     test_cf_examples = []
     cfexp_subgraph = {}
     for target_node in tqdm(target_node_list):
-        cf_example = generate_ac_explanation(target_node, data, pyg_data, gnn_model, pre_output, gcn_layer,
+        cf_example = generate_acexplainer_subgraph(target_node, data, pyg_data, gnn_model, pre_output, gcn_layer,
                                                        attack_method, top_t, device, nhid, dropout, with_bias)
         print(cf_example)
         print("Time for {} epochs of one example: {:.4f}min".format(200, (time.time() - start) / 60))

@@ -12,161 +12,173 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.nn.utils import clip_grad_norm_
 
 from utilty.utils import normalize_adj
+from explainer.ac_explanation.gcn_perturb import GNNPerturb
 
 
 class ACExplainer:
     def __init__(self,
                  model: nn.Module,
+                 target_node: int,
+                 node_idx: int,
                  extended_sub_adj: torch.Tensor,
                  sub_feat: torch.Tensor,
-                 target_node: int,
+                 sub_labels: torch.Tensor,
+                 y_pred_orig: torch.Tensor,
+                 nclass: int,
+                 nhid: int = 16,
+                 dropout: float = 0.5,
                  lambda_pred: float = 1.0,
                  lambda_dist: float = 0.5,
                  lambda_plau: float = 0.2,
-                 device: str = "cuda"):
+                 epoch: int = 200,
+                 optimizer: str = 'SGD',
+                 n_momentum: float = 0.9,
+                 lr: float = 0.01,
+                 top_k: int = 5,
+                 tau_plus: float = 0.5,
+                 tau_minus: float = -0.5,
+                 α1: float = 0.1,
+                 α2: float = 0.1,
+                 α3: float = 0.1,
+                 α4: float = 0.5,
+                 tau_c: float = 0.1,
+                 device: str = "cuda",
+                 gcn_layer: int = 2,
+                 with_bias: bool = True):
         # 将模型和数据移动到指定设备
         self.model = model.to(device)
-        self.original_adj = extended_sub_adj.to(device)
-        self.features = sub_feat.to(device)
-        self.target_node = target_node
-        self.device = device
+        self.model.eval()
+        self.extended_sub_adj = extended_sub_adj.to(device)
+        self.sub_feat = sub_feat.to(device)
+
+        self.n_hid = nhid
+        self.dropout = dropout
+        self.sub_labels = sub_labels
+        self.y_pred_orig = y_pred_orig
 
         # 损失权重
         self.lambda_pred = lambda_pred  # 预测损失权重
         self.lambda_dist = lambda_dist  # 稀疏损失权重
         self.lambda_plau = lambda_plau  # 现实性损失权重
 
-        # 存储原始预测
-        with torch.no_grad():
-            # norm_sub_adj = normalize_adj(self.original_adj)
-            # output = self.f(self.features, norm_sub_adj)
-            output = self.model(self.features)
-            # 获取目标节点的原始预测类别
-            self.orig_pred = output.argmax(dim=1)[target_node].item()
+        self.num_classes = nclass
+        self.target_node = target_node
+        self.node_idx = node_idx
+        self.epoch = epoch
+        self.optimizer_type = optimizer
+        self.n_momentum = n_momentum
+        self.lr = lr
+        self.top_k = top_k
+        self.tau_plus = tau_plus
+        self.tau_minus = tau_minus
+        self.α1 = α1
+        self.α2 = α2
+        self.α3 = α3
+        self.α4 = α4
+        self.tau_c = tau_c
+        self.device = device
+        self.gcn_layer = gcn_layer
+        self.with_bias = with_bias
+
+        # 创建扰动模型
+        self.cf_model = GNNPerturb(
+            nfeat=self.sub_feat.size(1),
+            nhid=self.n_hid,
+            nclass=self.num_classes,
+            extended_sub_adj=self.extended_sub_adj,
+            sub_feat=self.sub_feat,
+            node_idx=self.node_idx,
+            dropout=dropout,
+            lambda_pred=self.lambda_pred,
+            lambda_dist=self.lambda_dist,
+            lambda_plau=self.lambda_plau,
+            top_k=self.top_k,
+            tau_plus=self.tau_plus,
+            tau_minus=self.tau_minus,
+            α1=self.α1,
+            α2=self.α2,
+            α3=self.α3,
+            α4=self.α4,
+            tau_c=self.tau_c,
+            gcn_layer=gcn_layer,
+            with_bias=with_bias
+        ).to(device)
+
+        # 继承原模型参数
+        self.cf_model.load_state_dict(self.model.state_dict(), strict=False)
+
+        # Freeze weights from original model in cf_model 冻结原始参数，仅训练扰动矩阵
+        for name, param in self.cf_model.named_parameters():
+            if name.endswith("weight") or name.endswith("bias"):
+                param.requires_grad = False
+        for name, param in self.model.named_parameters():
+            print("orig model requires_grad: ", name, param.requires_grad)
+        for name, param in self.cf_model.named_parameters():
+            print("cf model requires_grad: ", name, param.requires_grad)
 
         # 优化器设置
-        self.optimizer = optim.Adam([self.model.get_mask_parameters()], lr=0.01)
+        if self.optimizer_type == "SGD" and self.n_momentum == 0.0:
+            self.cf_optimizer = optim.SGD(self.cf_model.parameters(), lr=self.lr)
+        elif self.optimizer_type == "SGD" and self.n_momentum != 0.0:
+            self.cf_optimizer = optim.SGD(self.cf_model.parameters(), lr=self.lr, nesterov=True,
+                                          momentum=self.n_momentum)
+        elif self.optimizer_type == "Adadelta":
+            self.cf_optimizer = optim.Adadelta(self.cf_model.parameters(), lr=self.lr)
+        elif self.optimizer_type == "Adam":
+            self.cf_optimizer = optim.Adam([self.cf_model.get_mask_parameters()], lr=self.lr)
 
-    def compute_losses(self, output: torch.Tensor, delta_A: torch.Tensor) -> tuple:
-        """计算多目标损失函数"""
-        # 预测损失 (鼓励翻转预测)
-        current_pred = output.argmax(dim=1)[self.target_node]
-        # pred_loss = -F.nll_loss(
-        #     output[self.target_node].unsqueeze(0),
-        #     torch.tensor([self.orig_pred], device=self.device)
-        # ) * (torch.argmax(output[self.target_node]) == torch.tensor([self.orig_pred], device=self.device)).float()
-        pred_loss = -F.nll_loss(
-            output[self.target_node].unsqueeze(0),  # shape: [1, n_class]
-            torch.tensor([self.orig_pred], device=self.device)  # shape: [1]
-        )
-
-        # 稀疏损失 (L0范数)
-        n_edits = torch.sum(torch.abs(delta_A) > 0.5).float()
-        dist_loss = n_edits / len(self.model.get_mask_parameters())
-
-        # 现实性损失
-        plau_loss = self.compute_plausibility_loss(delta_A)
-
-        # 加权总损失
-        total_loss = (
-                self.lambda_pred * pred_loss +
-                self.lambda_dist * dist_loss +
-                self.lambda_plau * plau_loss
-        )
-
-        return total_loss, pred_loss, dist_loss, plau_loss, current_pred.item()
-
-    def compute_plausibility_loss(self, delta_A: torch.Tensor) -> torch.Tensor:
-        """计算现实性损失"""
-        loss_components = torch.tensor(0.0, device=self.device)
-
-        # 1. 特征相似度惩罚 (仅对添加边)
-        add_mask = (delta_A > 0.5)
-        if add_mask.sum() > 0:
-            # 计算特征相似度
-            target_feat = self.features[self.target_node]
-
-            for i in range(self.original_adj.size(0)):
-                if add_mask[self.target_node, i]:
-                    feat_sim = F.cosine_similarity(
-                        target_feat.unsqueeze(0),
-                        self.features[i].unsqueeze(0)
-                    )
-                    loss_components = loss_components + (1 - feat_sim) * 0.1  # α1 = 0.1
-
-        # 2. 度分布惩罚
-        orig_degrees = torch.sum(self.original_adj, dim=1)
-        new_degrees = torch.sum(self.original_adj + delta_A, dim=1)
-        deg_diff = torch.abs(new_degrees - orig_degrees) / (1 + orig_degrees)
-        loss_components += torch.mean(deg_diff) * 0.2  # α2 = 0.2
-
-        return loss_components
-
-    def train_explanation(self, epochs: int = 100) -> dict:
+    def explain(self) -> dict:
         """训练解释器"""
         best_loss = float('inf')
         best_delta_A = None
         best_pred = None
         no_improve = 0
 
-        # self.model.train()
-        for epoch in range(epochs):
-            print(f"\n######## epoch: {epoch + 1} #############")
-            self.optimizer.zero_grad()
+        self.cf_model.eval()  # 反事实模型g训练阶段采用评估模式，冻结dropout和batchnorm
+
+        for epoch in range(self.epoch):
+            # print(f"\n######## epoch: {epoch + 1} #############")
+            self.cf_optimizer.zero_grad()
 
             # 前向传播
-            output = self.model(self.features)
-            print("Output requires_grad:", output.requires_grad)  # 应该为 True
-            print("Output grad_fn:", output.grad_fn)  # 不应为 None！
-            if output.grad_fn is None:
-                print("严重错误: 模型的前向传播未生成计算图！")
-                # 进一步检查输入特征是否需要梯度（通常不需要，但模型参数需要）
-                print("Features requires_grad:", self.features.requires_grad)
-                # 检查扰动参数
-                mask_params = self.model.get_mask_parameters()
-                print("Mask params requires_grad:", mask_params.requires_grad)
-                print("Mask params grad_fn:", mask_params.grad_fn)
-            delta_A = self.model.perturb_layer.get_perturbation_matrix()
+            output = self.cf_model.forward(self.sub_feat, self.extended_sub_adj)  # 可微分预测
+            output_actual = self.cf_model.forward_prediction(self.sub_feat)  # 离散预测
+
+            y_pred_new = torch.argmax(output[self.node_idx])
+            y_pred_new_actual = torch.argmax(output_actual[self.node_idx])
 
             # 计算损失
-            total_loss, pred_loss, dist_loss, plau_loss, current_pred = self.compute_losses(output, delta_A)
-            if total_loss.grad_fn is None:
-                print("警告: total_loss 没有梯度函数，计算图可能已中断!")
-                # 这里可以添加更详细的调试信息
-                print(f"pred_loss.requires_grad: {pred_loss.requires_grad}")
-                print(f"dist_loss.requires_grad: {dist_loss.requires_grad}")
-                print(f"plau_loss.requires_grad: {plau_loss.requires_grad}")
-
-            # 调试：检查梯度信息
-            print(f"total_loss.requires_grad: {total_loss.requires_grad}")
-            print(f"total_loss.grad_fn: {total_loss.grad_fn}")
+            total_loss, pred_loss, dist_loss, plau_loss, cf_adj, delta_A = self.cf_model.compute_losses(output,
+                                                                                                        self.y_pred_orig,
+                                                                                                        y_pred_new_actual)
 
             # 反向传播
             total_loss.backward()
+            clip_grad_norm_(self.cf_model.parameters(), 2.0)  # 裁剪梯度幅度
+            self.cf_optimizer.step()
 
-            # 检查掩码参数是否有梯度
-            mask_grad = self.model.get_mask_parameters().grad
-            print(f"梯度范数: {torch.norm(mask_grad).item() if mask_grad is not None else '无梯度'}")
-
-            self.optimizer.step()
-
-            print('Node idx: {}'.format(self.target_node),
+            print('Target node: {}'.format(self.target_node),
+                  'New idx: {}'.format(self.node_idx),
                   'Epoch: {:04d}'.format(epoch + 1),
                   'loss: {:.4f}'.format(total_loss.item()),
                   'pred loss: {:.4f}'.format(pred_loss.item()),
                   'dist loss: {:.4f}'.format(dist_loss.item()),
-                  'plau loss: {:.4f}'.format(plau_loss.item()), )
-            print('orig pred: {}, new pred nondiff: {}'.format(self.orig_pred, output.argmax(dim=1)[self.target_node]))
-
+                  'plau loss: {:.4f}'.format(plau_loss.item()))
+            print('Output: {}\n'.format(output[self.node_idx].data),
+                  'Output nondiff: {}\n'.format(output_actual[self.node_idx].data),
+                  'orig pred: {}, new pred: {}, new pred nondiff: {}'.format(self.y_pred_orig, y_pred_new,
+                                                                             y_pred_new_actual))
+            print(" ")
             # 早停检查
-            if current_pred != self.orig_pred and total_loss.item() < best_loss:
+            if y_pred_new_actual != self.y_pred_orig and total_loss.item() < best_loss:
                 best_loss = total_loss.item()
                 best_delta_A = delta_A.detach().clone()
-                best_pred = current_pred
+                best_pred = y_pred_new_actual
                 no_improve = 0
-            elif current_pred != self.orig_pred:
+            elif y_pred_new_actual != self.y_pred_orig:
                 no_improve += 1
 
             if no_improve > 20:  # 提前停止
@@ -176,7 +188,8 @@ class ACExplainer:
         if best_delta_A is not None:
             return {
                 "delta_A": best_delta_A,
-                "original_pred": self.orig_pred,
+                "cf_adj": cf_adj,
+                "original_pred": self.y_pred_orig,
                 "new_pred": best_pred
             }
         return None
@@ -210,13 +223,13 @@ class ACExplainer:
                 temp_normalized = self.model.normalize_adj(temp_adj)
 
                 # 手动计算GCN输出
-                x = F.relu(self.model.gc1(torch.mm(temp_normalized, self.features)))
+                x = F.relu(self.model.gc1(torch.mm(temp_normalized, self.sub_feat)))
                 x = F.dropout(x, self.model.dropout, training=False)
                 x = self.model.gc2(torch.mm(temp_normalized, x))
                 temp_output = F.log_softmax(x, dim=1)
-                temp_pred = temp_output.argmax(dim=1)[self.target_node].item()
+                temp_pred = temp_output.argmax(dim=1)[self.node_idx].item()
 
-                if temp_pred != self.orig_pred:
+                if temp_pred != self.y_pred_orig:
                     current_delta = temp_delta
 
         return current_delta
@@ -226,14 +239,14 @@ class ACExplainer:
         self.model.zero_grad()
 
         # 计算预测损失
-        output = self.model(self.features)
+        output = self.model(self.sub_feat)
         # pred_loss = -F.nll_loss(
-        #     output[self.target_node].unsqueeze(0),
-        #     torch.tensor(self.orig_pred, device=self.device)
-        # ) * (output[self.target_node].unsqueeze(0) == self.orig_pred).float()
+        #     output[self.node_idx].unsqueeze(0),
+        #     torch.tensor(self.y_pred_orig, device=self.device)
+        # ) * (output[self.node_idx].unsqueeze(0) == self.y_pred_orig).float()
         pred_loss = -F.nll_loss(
-            output[self.target_node].unsqueeze(0),
-            torch.tensor([self.orig_pred], device=self.device)
+            output[self.node_idx].unsqueeze(0),
+            torch.tensor([self.y_pred_orig], device=self.device)
         )
 
         # 反向传播获取梯度
@@ -244,9 +257,9 @@ class ACExplainer:
         grad_matrix = torch.zeros_like(delta_A)
         edge_idx = 0
         for i in range(self.original_adj.size(0)):
-            if i != self.target_node:
-                grad_matrix[self.target_node, i] = mask_grad[edge_idx]
-                grad_matrix[i, self.target_node] = mask_grad[edge_idx]
+            if i != self.node_idx:
+                grad_matrix[self.node_idx, i] = mask_grad[edge_idx]
+                grad_matrix[i, self.node_idx] = mask_grad[edge_idx]
                 edge_idx += 1
 
         return grad_matrix

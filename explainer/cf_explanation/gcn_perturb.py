@@ -29,8 +29,8 @@ class GCNCoraPerturb(nn.Module):
             self.P_vec = Parameter(torch.FloatTensor(torch.zeros(self.P_vec_size)))
         else:
             self.P_vec = Parameter(torch.FloatTensor(torch.ones(self.P_vec_size)))
-
         self.reset_parameters()
+
         if self.gcn_layer == 3:
             self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
             self.gc2 = GraphConvolution(nhid, nhid, with_bias=with_bias)

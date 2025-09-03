@@ -49,7 +49,18 @@ N_Momentum = 0.9  # Nesterov momentum
 
 ################ ACExplainer parameters for Cora data ##############
 MAX_ATTACK_NODES_NUM = 30  # max number of selected attacked nodes
-NUM_EPOCHS_AC = 500  # Num epochs for explainer
-OPTIMIZER_AC = "SGD"  # SGD or Adadelta
+NUM_EPOCHS_AC = 200  # Num epochs for explainer
+OPTIMIZER_AC = "SGD"  # SGD or Adadelta or Adam
 N_Momentum_AC = 0.9  # Nesterov momentum
+LAMBDA_PRED = 1.0
+LAMBDA_DIST = 0.5
+LAMBDA_PLAU = 0.2
+MAX_EDITS = 5
+TAU_PLUS = 0.5
+TAU_MINUS = -0.5
+α1 = 0.1
+α2 = 0.1
+α3 = 0.1
+α4 = 10
+TAU_C = 0.1
 ####################################################################

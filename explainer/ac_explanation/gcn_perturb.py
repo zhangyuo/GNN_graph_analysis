@@ -22,6 +22,7 @@ class SignedMaskPerturbation(nn.Module):
     def __init__(self,
                  extended_sub_adj: torch.Tensor,
                  node_idx: int,
+                 node_num_l_hop: int,
                  top_k: int = 5,
                  tau_plus: float = 0.5,
                  tau_minus: float = -0.5):
@@ -39,8 +40,11 @@ class SignedMaskPerturbation(nn.Module):
         self.node_idx = node_idx  # 目标节点在子图中的索引
         self.tau_plus = tau_plus  # 添加边的阈值
         self.tau_minus = tau_minus  # 删除边的阈值
+        self.node_num_l_hop = node_num_l_hop
         self.top_k = top_k  # 保留的最大边修改数量
         self.n_nodes = extended_sub_adj.size(0)  # 扩展子图中的节点数
+        self.plan_added_node_idx = []
+        self.plan_deleted_node_idx = []
 
         # 初始化带符号的掩码参数
         self.M = self._initialize_mask()
@@ -58,10 +62,12 @@ class SignedMaskPerturbation(nn.Module):
             # 检查在原始图中是否存在边
             if self.extended_sub_adj[self.node_idx, i]:
                 # 现有边初始化为小负数 (倾向删除)
-                mask_init_values.append(-eps)
-            else:
-                # 新边初始化为小正数 (倾向添加)
-                mask_init_values.append(eps)
+                mask_init_values.append(-0.5)
+                self.plan_deleted_node_idx.append(i)
+            elif i+1 > self.node_num_l_hop:
+                # 仅针对攻击候选节点的新边初始化为小正数 (倾向添加)
+                mask_init_values.append(-0.1)
+                self.plan_added_node_idx.append(i)
 
         # 转换为可训练参数--将列表转换为PyTorch张量，并封装为可学习参数(Parameter)
         return nn.Parameter(torch.tensor(mask_init_values, dtype=torch.float32))
@@ -85,7 +91,7 @@ class SignedMaskPerturbation(nn.Module):
             full_mask = torch.zeros_like(self.extended_sub_adj)
             edge_idx = 0
             for i in range(self.n_nodes):
-                if i != self.node_idx:
+                if i != self.node_idx and i in (self.plan_added_node_idx + self.plan_deleted_node_idx):
                     full_mask[self.node_idx, i] = top_k_M_e[edge_idx]
                     full_mask[i, self.node_idx] = top_k_M_e[edge_idx]
                     edge_idx += 1
@@ -111,7 +117,7 @@ class SignedMaskPerturbation(nn.Module):
         full_mask = torch.zeros_like(self.extended_sub_adj)
         edge_idx = 0
         for i in range(self.n_nodes):
-            if i != self.node_idx:
+            if i != self.node_idx and i in (self.plan_added_node_idx + self.plan_deleted_node_idx):
                 full_mask[self.node_idx, i] = self.M[edge_idx]
                 full_mask[i, self.node_idx] = self.M[edge_idx]
                 edge_idx += 1
@@ -167,6 +173,7 @@ class GNNPerturb(nn.Module):
                  extended_sub_adj: torch.Tensor,
                  sub_feat: torch.Tensor,
                  node_idx: int,
+                 node_num_l_hop: int,
                  dropout: float = 0.5,
                  lambda_pred: float = 1.0,
                  lambda_dist: float = 0.5,
@@ -192,6 +199,7 @@ class GNNPerturb(nn.Module):
         self.sub_feat = sub_feat
         self.num_nodes = self.extended_sub_adj.shape[0]
         self.node_idx = node_idx
+        self.node_num_l_hop = node_num_l_hop
         self.α1 = α1
         self.α2 = α2
         self.α3 = α3
@@ -200,7 +208,7 @@ class GNNPerturb(nn.Module):
 
         # 扰动层
         print(f"Input extended_sub_adj.requires_grad: {extended_sub_adj.requires_grad}")
-        self.perturb_layer = SignedMaskPerturbation(extended_sub_adj, node_idx, top_k, tau_plus, tau_minus)
+        self.perturb_layer = SignedMaskPerturbation(extended_sub_adj, node_idx, node_num_l_hop, top_k, tau_plus, tau_minus)
 
         # GCN层定义
         if self.gcn_layer == 3:
@@ -286,7 +294,14 @@ class GNNPerturb(nn.Module):
         cf_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
         # cf_adj.requires_grad = True  # Need to change this otherwise loss_graph_dist has no gradient
         # Number of edges changed (symmetrical) 图结构变化量（边改变数）
-        dist_loss = sum(sum(abs(cf_adj - self.extended_sub_adj))) / 2
+        # dist_loss = sum(sum(abs(cf_adj - self.extended_sub_adj))) / 2
+
+        deletion_mask = (self.delta_A == -1) & (self.extended_sub_adj == 1)
+        num_deletions = deletion_mask.sum() / 2
+        addition_mask = (self.delta_A == 1) & (self.extended_sub_adj == 0)
+        num_additions = addition_mask.sum() / 2
+
+        dist_loss = 0.5 * num_deletions + 1.5 * num_additions
 
         if dist_loss > 0:
             pass
@@ -297,7 +312,7 @@ class GNNPerturb(nn.Module):
         # 加权总损失
         total_loss = self.lambda_pred * pred_loss + self.lambda_dist * dist_loss + self.lambda_plau * plau_loss
 
-        return total_loss, pred_loss, dist_loss, plau_loss, cf_adj, self.delta_A
+        return total_loss, pred_loss, dist_loss, plau_loss, cf_adj, self.delta_A, self.perturb_layer, self.full_mask
 
     def compute_plausibility_loss(self) -> torch.Tensor:
         """计算现实性损失"""

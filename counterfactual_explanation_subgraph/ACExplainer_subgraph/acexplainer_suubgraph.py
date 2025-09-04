@@ -21,48 +21,55 @@ import networkx as nx
 from torch_geometric.utils import k_hop_subgraph, to_dense_adj
 from tqdm import tqdm
 
+from attack.GOttack.OrbitAttack import OrbitAttack
+from attack.GOttack.orbit_table_generator import OrbitTableGenerator
 from config.config import *
 from explainer.ac_explanation.ac_explainer import ACExplainer
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
+from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes
 import torch.nn.functional as F
 
 
-def generate_acexplainer_subgraph(target_node: int,
-                            data,
-                            pyg_data,
-                            gnn_model,
-                            output,
-                            gcn_layer: int = 2,
-                            attack_method: str = "GOttack",
-                            top_t: int = 10,
-                            device: str = "cuda",
-                            nhid: int = 16,
-                            dropout: float=0.5,
-                            with_bias: bool=True):
+def generate_acexplainer_subgraph(df_orbit,
+                                  attack_model,
+                                  target_node: int,
+                                  data,
+                                  pyg_data,
+                                  gnn_model,
+                                  output,
+                                  gcn_layer: int = 2,
+                                  attack_method: str = "GOttack",
+                                  top_t: int = 10,
+                                  device: str = "cuda",
+                                  nhid: int = 16,
+                                  dropout: float = 0.5,
+                                  with_bias: bool = True):
     """
     生成AC-Explainer解释
     """
     # 1. 提取目标节点的l-hop子图
-    node_idx, edge_index, mapping, _ = k_hop_subgraph(
+    node_index, edge_index, mapping, _ = k_hop_subgraph(
         node_idx=target_node,
-        num_hops=gcn_layer + 1, # 覆盖GCN的感受野
+        num_hops=gcn_layer + 1,  # 覆盖GCN的感受野
         edge_index=pyg_data.edge_index,
         relabel_nodes=True,
         num_nodes=pyg_data.edge_index.max() + 1
     )
 
+    node_num_l_hop = len(node_index)
+
     # 2. 获取攻击节点并映射到原始图索引
-    attack_nodes = get_attack_nodes(target_node, pyg_data, attack_method, top_t)
+    attack_nodes = get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, attack_method, top_t)
 
     # 3. 构建扩展节点集合 (l-hop节点 + 攻击节点)
-    extended_nodes = list(set(node_idx.tolist() + attack_nodes))
+    extended_nodes = list(set(node_index.tolist() + attack_nodes))
     extended_nodes.sort()
 
     # 4. 高效创建扩展子图的邻接矩阵和原始掩码矩阵
     # extended_adj, original_adj_mask = networkx_create_extended_adj(extended_nodes, pyg_data.edge_index)
     adj_dense = data.adj.toarray()
-    extended_adj = adj_dense[np.ix_(extended_nodes,extended_nodes)]
+    extended_adj = adj_dense[np.ix_(extended_nodes, extended_nodes)]
     extended_adj = torch.tensor(extended_adj, dtype=torch.float, requires_grad=True)
 
     # 5. 提取扩展子图的特征
@@ -70,6 +77,7 @@ def generate_acexplainer_subgraph(target_node: int,
 
     # 6. 找到目标节点在扩展子图中的新索引
     target_node_idx = extended_nodes.index(target_node)
+    node_dict = {int(orig_id): idx for idx, orig_id in enumerate(extended_nodes)}
 
     # test model log-probability output is same to original prediction output
     print("Output original model, full adj: {}".format(output[target_node]))
@@ -81,6 +89,7 @@ def generate_acexplainer_subgraph(target_node: int,
         model=gnn_model,
         target_node=target_node,
         node_idx=target_node_idx,
+        node_num_l_hop=node_num_l_hop,
         extended_sub_adj=extended_adj,
         sub_feat=extended_feat,
         sub_labels=data.labels[extended_nodes],
@@ -112,7 +121,8 @@ def generate_acexplainer_subgraph(target_node: int,
     result = explainer.explain()
 
     if result is None:
-        return {"error": "No valid counterfactual found"}
+        print({"error": "No valid counterfactual found"})
+        return None
 
     # 9. 映射回原始图索引
     added_edges = []
@@ -125,39 +135,70 @@ def generate_acexplainer_subgraph(target_node: int,
                 orig_i = extended_nodes[i]
                 orig_j = extended_nodes[j]
                 added_edges.append((orig_i, orig_j))
-            elif delta_A[i, j] < TAU_MINUS  and extended_adj[i, j] == 1:  # 删除的边
+            elif delta_A[i, j] < TAU_MINUS and extended_adj[i, j] == 1:  # 删除的边
                 orig_i = extended_nodes[i]
                 orig_j = extended_nodes[j]
                 removed_edges.append((orig_i, orig_j))
+
+    # 10. generate subgraph
+    modified_sub_adj = result["cf_adj"].detach().numpy()
+    changed_label = result["new_pred"].item()
+    sub_labels = data.labels[extended_nodes]
+    subgraph, true_subgraph, E_type = visualize_cfexp_subgraph(
+        modified_sub_adj,
+        extended_adj.detach().numpy(),
+        data.labels,
+        sub_labels,
+        extended_feat.numpy(),
+        changed_label,
+        target_node_idx,
+        cfexp_name='ACExplanation',
+        title="Visualization for counterfactual explanation subgraph",
+        pic_path=counterfactual_explanation_subgraph_path,
+        full_mapping=node_dict
+    )
+    print("Visualize ok for counterfactual explanation subgraph")
 
     return {
         "added_edges": added_edges,
         "removed_edges": removed_edges,
         "original_pred": result["original_pred"],
         "new_pred": result["new_pred"],
-        # "extended_nodes": extended_nodes,
-        # "cf_adj": result["cf_adj"]
+        "extended_nodes": extended_nodes,
+        "cf_adj": result["cf_adj"],
+        "subgraph": subgraph,
+        "true_subgraph": true_subgraph,
+        "E_type": E_type
     }
 
 
-def get_attack_nodes(target_node, pyg_data, method="GOttack", top_t=10):
+def get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data,  method="GOttack", top_t=10):
     """获取攻击节点列表"""
     if method == "GOttack":
-        # 这里应实现GOttack攻击方法，返回高影响力节点
-        # 简化版：选择特征最相似的节点
-        target_feat = pyg_data.x[target_node]
+        # 实现GOttack攻击方法，返回高影响力节点
+        # 1. Feature Similarity > 0.1
+        matching_index = df_orbit.index[df_orbit['two_Orbit_type'] == '1518'].tolist()
         similarities = []
-
-        for i in range(pyg_data.edge_index.max() + 1):
+        for i in matching_index:
             if i != target_node:
                 sim = F.cosine_similarity(
-                    target_feat.unsqueeze(0),
+                    pyg_data.x[target_node].unsqueeze(0),
                     pyg_data.x[i].unsqueeze(0)
                 )
-                similarities.append((i, sim.item()))
+                if sim > 0.1:
+                    similarities.append((i, sim.item()))
 
         similarities.sort(key=lambda x: x[1], reverse=True)
-        return [node for node, sim in similarities[:top_t]]
+        high_sim_node = [node for node, sim in similarities]
+
+        # Domain Rules
+        pass
+
+        # High Impact Prioritization
+        attack_model.attack_cf(data.features, data.adj, data.labels, target_node, top_t, high_sim_node=high_sim_node)
+        best_edges = attack_model.best_edge_list
+
+        return [node[1] for node in best_edges]
 
     else:
         # 其他攻击方法
@@ -227,7 +268,6 @@ if __name__ == '__main__':
     explainer_method = "ACExplainer"
     top_t = MAX_ATTACK_NODES_NUM
 
-
     np.random.seed(SEED_NUM)
 
     time_name = datetime.now().strftime("%Y-%m-%d")
@@ -266,35 +306,39 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    target_node_list = target_node_list[150:170]
+    # target_node_list = target_node_list[150:170]
 
     ######################### GNN explainer generate  #########################
+    df_orbit = OrbitTableGenerator(dataset_name).generate_orbit_table()
+    attack_model = OrbitAttack(gnn_model, df_orbit, nnodes=adj.shape[0], device=device)  # initialize the attack model
     # Get CF examples in test set
     start = time.time()
     test_cf_examples = []
     cfexp_subgraph = {}
     for target_node in tqdm(target_node_list):
-        cf_example = generate_acexplainer_subgraph(target_node, data, pyg_data, gnn_model, pre_output, gcn_layer,
-                                                       attack_method, top_t, device, nhid, dropout, with_bias)
-        print(cf_example)
+        cf_example = generate_acexplainer_subgraph(df_orbit, attack_model, target_node, data, pyg_data, gnn_model,
+                                                   pre_output,
+                                                   gcn_layer, attack_method, top_t, device, nhid, dropout, with_bias)
+        # print(cf_example)
         print("Time for {} epochs of one example: {:.4f}min".format(200, (time.time() - start) / 60))
-    #     cfexp_subgraph[target_node] = None
-    #     test_cf_examples.append(cf_example)
-    # print("Total time elapsed: {:.4f}s".format((time.time() - start) / 60))
-    # print("Number of CF examples found: {}/{}".format(len(test_cf_examples), len(target_node_list)))
-    #
-    # with open(counterfactual_explanation_subgraph_path + "/cfexp_subgraph.pickle", "wb") as fw:
-    #     pickle.dump(cfexp_subgraph, fw)
-    #
-    # # Save CF examples in test set
-    # with safe_open(
-    #         "../results/{}/{}/{}_cf_examples_gcnlayer{}_lr{}_beta{}_mom{}_epochs{}_seed{}".format(DATA_NAME,
-    #                                                                                               OPTIMIZER,
-    #                                                                                               DATA_NAME,
-    #                                                                                               GCN_LAYER,
-    #                                                                                               LEARNING_RATE,
-    #                                                                                               BETA,
-    #                                                                                               N_Momentum,
-    #                                                                                               NUM_EPOCHS,
-    #                                                                                               SEED_NUM), "wb") as f:
-    #     pickle.dump(test_cf_examples, f)
+        if cf_example:
+            cfexp_subgraph[target_node] = cf_example["subgraph"]
+            test_cf_examples.append(cf_example)
+    print("Total time elapsed: {:.4f}s".format((time.time() - start) / 60))
+    print("Number of CF examples found: {}/{}".format(len(test_cf_examples), len(target_node_list)))
+
+    with open(counterfactual_explanation_subgraph_path + "/cfexp_subgraph.pickle", "wb") as fw:
+        pickle.dump(cfexp_subgraph, fw)
+
+    # Save CF examples in test set
+    with safe_open(
+            "../results/{}/{}/{}_cf_examples_gcnlayer{}_lr{}_beta{}_mom{}_epochs{}_seed{}".format(DATA_NAME,
+                                                                                                  OPTIMIZER,
+                                                                                                  DATA_NAME,
+                                                                                                  GCN_LAYER,
+                                                                                                  LEARNING_RATE,
+                                                                                                  BETA,
+                                                                                                  N_Momentum,
+                                                                                                  NUM_EPOCHS,
+                                                                                                  SEED_NUM), "wb") as f:
+        pickle.dump(test_cf_examples, f)

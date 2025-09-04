@@ -23,6 +23,7 @@ class ACExplainer:
                  model: nn.Module,
                  target_node: int,
                  node_idx: int,
+                 node_num_l_hop: int,
                  extended_sub_adj: torch.Tensor,
                  sub_feat: torch.Tensor,
                  sub_labels: torch.Tensor,
@@ -67,6 +68,7 @@ class ACExplainer:
         self.num_classes = nclass
         self.target_node = target_node
         self.node_idx = node_idx
+        self.node_num_l_hop = node_num_l_hop
         self.epoch = epoch
         self.optimizer_type = optimizer
         self.n_momentum = n_momentum
@@ -91,6 +93,7 @@ class ACExplainer:
             extended_sub_adj=self.extended_sub_adj,
             sub_feat=self.sub_feat,
             node_idx=self.node_idx,
+            node_num_l_hop=self.node_num_l_hop,
             dropout=dropout,
             lambda_pred=self.lambda_pred,
             lambda_dist=self.lambda_dist,
@@ -152,7 +155,7 @@ class ACExplainer:
             y_pred_new_actual = torch.argmax(output_actual[self.node_idx])
 
             # 计算损失
-            total_loss, pred_loss, dist_loss, plau_loss, cf_adj, delta_A = self.cf_model.compute_losses(output,
+            total_loss, pred_loss, dist_loss, plau_loss, cf_adj, delta_A, perturb_layer, full_mask = self.cf_model.compute_losses(output,
                                                                                                         self.y_pred_orig,
                                                                                                         y_pred_new_actual)
 
@@ -186,55 +189,63 @@ class ACExplainer:
             if no_improve > 20:  # 提前停止
                 break
 
-        # 返回结果
         if best_delta_A is not None:
+            # 后剪枝
+            pruned_delta_A = self.minimality_pruning(best_delta_A, perturb_layer, full_mask)
+
+            # 返回结果
+            # return {
+            #     "delta_A": best_delta_A,
+            #     "cf_adj": best_cf_adj,
+            #     "original_pred": self.y_pred_orig,
+            #     "new_pred": best_pred
+            # }
             return {
-                "delta_A": best_delta_A,
-                "cf_adj": best_cf_adj,
+                "delta_A": pruned_delta_A,  # 使用剪枝后的扰动
+                "cf_adj": perturb_layer.build_perturbed_adj(
+                    self.extended_sub_adj,
+                    pruned_delta_A
+                ),
                 "original_pred": self.y_pred_orig,
-                "new_pred": best_pred
+                "new_pred": self._validate_pruning(pruned_delta_A, perturb_layer)  # 验证预测
             }
+
+
         return None
 
-    def minimality_pruning(self, delta_A: torch.Tensor) -> torch.Tensor:
-        """最小化剪枝算法"""
+    def minimality_pruning(self, delta_A: torch.Tensor, perturb_layer, full_mask) -> torch.Tensor:
         current_delta = delta_A.clone()
-
-        # 获取所有扰动边
         edge_indices = torch.nonzero(current_delta != 0)
-        if len(edge_indices) == 0:
+
+        if edge_indices.size(0) == 0:
             return current_delta
 
-        # 按梯度敏感度排序
-        importance_scores = self.compute_edge_importance(current_delta)
-        sorted_indices = torch.argsort(importance_scores.flatten())
+        # 按扰动强度排序（绝对值越大越重要）
+        abs_values = torch.abs(full_mask[edge_indices[:, 0], edge_indices[:, 1]])
+        sorted_indices = torch.argsort(abs_values, descending=True)  # 降序排序
 
-        # 迭代移除边
+        # 从最不重要的边开始尝试移除（低绝对值）
         for idx in sorted_indices:
             i, j = edge_indices[idx]
-
-            # 临时移除该边
             temp_delta = current_delta.clone()
             temp_delta[i, j] = 0
-            temp_delta[j, i] = 0
+            temp_delta[j, i] = 0  # 对称处理
 
-            # 检查预测是否仍翻转
-            with torch.no_grad():
-                temp_adj = self.original_adj + temp_delta
-                temp_adj = temp_adj.fill_diagonal_(1)
-                temp_normalized = self.model.normalize_adj(temp_adj)
-
-                # 手动计算GCN输出
-                x = F.relu(self.model.gc1(torch.mm(temp_normalized, self.sub_feat)))
-                x = F.dropout(x, self.model.dropout, training=False)
-                x = self.model.gc2(torch.mm(temp_normalized, x))
-                temp_output = F.log_softmax(x, dim=1)
-                temp_pred = temp_output.argmax(dim=1)[self.node_idx].item()
-
-                if temp_pred != self.y_pred_orig:
-                    current_delta = temp_delta
+            # 验证预测是否仍翻转
+            if self._validate_flip(temp_delta, perturb_layer):
+                current_delta = temp_delta  # 保留移除操作
 
         return current_delta
+
+    def _validate_flip(self, delta_A, perturb_layer):
+        perturbed_adj = perturb_layer.build_perturbed_adj(
+            self.extended_sub_adj,
+            delta_A
+        )
+        norm_adj = normalize_adj(perturbed_adj)
+        with torch.no_grad():
+            output = self.model(self.sub_feat, norm_adj)
+            return output[self.node_idx].argmax() != self.y_pred_orig
 
     def compute_edge_importance(self, delta_A: torch.Tensor) -> torch.Tensor:
         """计算边重要性分数 (基于梯度敏感度)"""
@@ -265,3 +276,13 @@ class ACExplainer:
                 edge_idx += 1
 
         return grad_matrix
+
+    def _validate_pruning(self, delta_A, perturb_layer):
+        with torch.no_grad():
+            perturbed_adj = perturb_layer.build_perturbed_adj(
+                self.extended_sub_adj,
+                delta_A
+            )
+            norm_adj = normalize_adj(perturbed_adj)
+            output = self.model(self.sub_feat, norm_adj)
+            return output[self.node_idx].argmax()

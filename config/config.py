@@ -48,19 +48,19 @@ N_Momentum = 0.9  # Nesterov momentum
 ####################################################################
 
 ################ ACExplainer parameters for Cora data ##############
-MAX_ATTACK_NODES_NUM = 30  # max number of selected attacked nodes
+MAX_ATTACK_NODES_NUM = 20  # max number of selected attacked nodes
 NUM_EPOCHS_AC = 200  # Num epochs for explainer
 OPTIMIZER_AC = "SGD"  # SGD or Adadelta or Adam
 N_Momentum_AC = 0.9  # Nesterov momentum
-LAMBDA_PRED = 1.0
-LAMBDA_DIST = 0.5
-LAMBDA_PLAU = 0.5
-MAX_EDITS = 5
-TAU_PLUS = 0.5
-TAU_MINUS = -0.5
-α1 = 10
-α2 = 1
-α3 = 10
-α4 = 10
-TAU_C = 0.1
+LAMBDA_PRED = 1.0  # 预测损失权重
+LAMBDA_DIST = 0.5  # 稀疏项惩罚权重
+LAMBDA_PLAU = 0.5  # 现实惩罚项权重
+MAX_EDITS = 5  # 最大扰动预算
+TAU_PLUS = 0.5  # 加边阈值
+TAU_MINUS = -0.5  # 减边阈值
+α1 = 10  # 特征相似惩罚项权重-针对加边
+α2 = 1  # 度变化惩罚项权重
+α3 = 10  # 聚类系数变化惩罚项权重，保持同等量级
+α4 = 20  # 领域知识破坏惩罚项权重-针对加边
+TAU_C = 0.1  # 聚类系数变化容忍度阈值
 ####################################################################

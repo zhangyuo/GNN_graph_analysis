@@ -64,8 +64,6 @@ def generate_acexplainer_subgraph(target_node: int,
     adj_dense = data.adj.toarray()
     extended_adj = adj_dense[np.ix_(extended_nodes,extended_nodes)]
     extended_adj = torch.tensor(extended_adj, dtype=torch.float, requires_grad=True)
-    # 原始掩码矩阵与邻接矩阵相同
-    original_adj_mask = extended_adj.clone()
 
     # 5. 提取扩展子图的特征
     extended_feat = pyg_data.x[extended_nodes]
@@ -123,11 +121,11 @@ def generate_acexplainer_subgraph(target_node: int,
     delta_A = result["delta_A"]
     for i in range(delta_A.size(0)):
         for j in range(i + 1, delta_A.size(1)):
-            if delta_A[i, j] > TAU_PLUS:  # 添加的边
+            if delta_A[i, j] > TAU_PLUS and extended_adj[i, j] == 0:  # 添加的边
                 orig_i = extended_nodes[i]
                 orig_j = extended_nodes[j]
                 added_edges.append((orig_i, orig_j))
-            elif delta_A[i, j] < TAU_MINUS:  # 删除的边
+            elif delta_A[i, j] < TAU_MINUS  and extended_adj[i, j] == 1:  # 删除的边
                 orig_i = extended_nodes[i]
                 orig_j = extended_nodes[j]
                 removed_edges.append((orig_i, orig_j))
@@ -268,7 +266,7 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    target_node_list = target_node_list[104:105]
+    target_node_list = target_node_list[150:170]
 
     ######################### GNN explainer generate  #########################
     # Get CF examples in test set

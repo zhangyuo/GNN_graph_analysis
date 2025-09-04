@@ -135,6 +135,7 @@ class ACExplainer:
         best_loss = float('inf')
         best_delta_A = None
         best_pred = None
+        best_cf_adj = None
         no_improve = 0
 
         self.cf_model.eval()  # 反事实模型g训练阶段采用评估模式，冻结dropout和batchnorm
@@ -177,6 +178,7 @@ class ACExplainer:
                 best_loss = total_loss.item()
                 best_delta_A = delta_A.detach().clone()
                 best_pred = y_pred_new_actual
+                best_cf_adj = cf_adj
                 no_improve = 0
             elif y_pred_new_actual != self.y_pred_orig:
                 no_improve += 1
@@ -188,7 +190,7 @@ class ACExplainer:
         if best_delta_A is not None:
             return {
                 "delta_A": best_delta_A,
-                "cf_adj": cf_adj,
+                "cf_adj": best_cf_adj,
                 "original_pred": self.y_pred_orig,
                 "new_pred": best_pred
             }

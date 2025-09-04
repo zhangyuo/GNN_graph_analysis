@@ -93,11 +93,11 @@ class SignedMaskPerturbation(nn.Module):
             # 计算离散值(使用torch.where进行三值化)
             delta_A = torch.where(
                 full_mask > self.tau_plus,
-                1.0,
+                1,
                 torch.where(
                     full_mask < self.tau_minus,
-                    -1.0,
-                    0.0
+                    -1,
+                    0
                 )
             )
 
@@ -288,6 +288,9 @@ class GNNPerturb(nn.Module):
         # Number of edges changed (symmetrical) 图结构变化量（边改变数）
         dist_loss = sum(sum(abs(cf_adj - self.extended_sub_adj))) / 2
 
+        if dist_loss > 0:
+            pass
+
         # 现实性损失
         plau_loss = self.compute_plausibility_loss()
 
@@ -299,6 +302,10 @@ class GNNPerturb(nn.Module):
     def compute_plausibility_loss(self) -> torch.Tensor:
         """计算现实性损失"""
         loss_components = torch.tensor(0.0)
+        loss_components_1 = torch.tensor(0.0)
+        loss_components_2 = torch.tensor(0.0)
+        loss_components_3 = torch.tensor(0.0)
+        loss_components_4 = torch.tensor(0.0)
 
         # 1. 特征相似度惩罚 (仅对添加边)
         add_mask = (self.delta_A > 0.5)
@@ -312,20 +319,20 @@ class GNNPerturb(nn.Module):
                         target_feat.unsqueeze(0),
                         self.sub_feat[i].unsqueeze(0)
                     )
-                    loss_components = loss_components + (1 - feat_sim) * self.α1
-            loss_components = loss_components / add_mask.sum()
+                    loss_components_1 = loss_components_1 + (1 - feat_sim) * self.α1
+            loss_components_1 = loss_components_1 / add_mask.sum()
 
         # 2. 度分布惩罚
         orig_degrees = torch.sum(self.extended_sub_adj, dim=1)
         new_degrees = torch.sum(self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A), dim=1)
         deg_diff = torch.abs(new_degrees - orig_degrees) / (1 + orig_degrees)
-        loss_components = loss_components + torch.mean(deg_diff) * self.α2
+        loss_components_2 = torch.sum(deg_diff) * self.α2
 
         # 3. penalty of clustering coefficients drastic changes
         orig_cluster_coef = self.clustering_coefficient(self.extended_sub_adj)
         new_cluster_coef = self.clustering_coefficient(
             self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A))
-        motif_violation = torch.mean(
+        motif_violation = torch.sum(
             torch.clamp(torch.abs(new_cluster_coef - orig_cluster_coef) - self.tau_c, min=0.0)
         )
 
@@ -344,7 +351,7 @@ class GNNPerturb(nn.Module):
         # # 计算MotifViol值 (所有节点违反度的平均值)
         # motif_violation = sum(node_violations) / n
 
-        loss_components = loss_components + motif_violation * self.α3
+        loss_components_3 = motif_violation * self.α3
 
         # 4. domain-specific constraint
         publish_year = None
@@ -363,7 +370,9 @@ class GNNPerturb(nn.Module):
                     elif (target_year < year_i) and self.extended_sub_adj[self.node_idx, i]:
                         violation_count += 1
             sem_cost = violation_count / add_mask.sum()
-            loss_components = loss_components + torch.tensor(sem_cost, dtype=float) * self.α4
+            loss_components_4 = loss_components_4 + torch.tensor(sem_cost, dtype=float) * self.α4
+
+        loss_components = loss_components_1 + loss_components_2 + loss_components_3 + loss_components_4
 
         return loss_components
 

@@ -54,13 +54,13 @@ OPTIMIZER_AC = "SGD"  # SGD or Adadelta or Adam
 N_Momentum_AC = 0.9  # Nesterov momentum
 LAMBDA_PRED = 1.0
 LAMBDA_DIST = 0.5
-LAMBDA_PLAU = 0.2
+LAMBDA_PLAU = 0.5
 MAX_EDITS = 5
 TAU_PLUS = 0.5
 TAU_MINUS = -0.5
-α1 = 0.1
-α2 = 0.1
-α3 = 0.1
+α1 = 10
+α2 = 1
+α3 = 10
 α4 = 10
 TAU_C = 0.1
 ####################################################################

@@ -51,6 +51,7 @@ def attack_cfexplanation_subgraph_generate(target_node_list, attack_subgraph, fe
 
 def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels, output, model, device, idx_test,
                                   gcn_layer, with_bias, counterfactual_explanation_subgraph_path):
+    start = time.time()
     sub_adj, sub_edge_index, sub_feat, sub_labels, node_dict = get_neighbourhood(target_node, edge_index,
                                                                                  features, labels, gcn_layer)
     new_idx = node_dict[target_node]
@@ -82,6 +83,9 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
 
     cf_example = explainer.explain(node_idx=target_node, cf_optimizer=OPTIMIZER, new_idx=new_idx, lr=LEARNING_RATE,
                                    n_momentum=N_Momentum, num_epochs=NUM_EPOCHS)
+    time_cost = time.time() - start
+
+    # graph visualization
     subgraph = None
     if cf_example != []:
         modified_sub_adj = cf_example[0][2]
@@ -100,7 +104,7 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
             full_mapping=node_dict
         )
         print("Visualize ok for counterfactual explanation subgraph")
-    return subgraph, cf_example
+    return subgraph, cf_example, time_cost
 
 
 if __name__ == '__main__':
@@ -120,7 +124,7 @@ if __name__ == '__main__':
     with_bias = WITH_BIAS
     gcn_layer = GCN_LAYER
     attack_type = ATTACK_TYPE
-    explanation_type = "counterfactual"
+    explanation_type = EXPLANATION_TYPE
     attack_method = ATTACK_METHOD
     attack_budget_list = ATTACK_BUDGET_LIST
     explainer_method = "CFExplainer"
@@ -163,36 +167,39 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    # target_node_list = target_node_list[100:200]
+    # target_node_list = target_node_list[150:160]
 
     ######################### GNN explainer generate  #########################
     # Get CF examples in test set
-    start = time.time()
+    start_0 = time.time()
     test_cf_examples = []
     cfexp_subgraph = {}
+    time_list = []
     for target_node in tqdm(target_node_list):
         edge_index = pyg_data.edge_index
-        subgraph, cf_example = generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels, pre_output,
-                                                             gnn_model, device, idx_test, gcn_layer, with_bias,
-                                                             counterfactual_explanation_subgraph_path)
-        print("Time for {} epochs of one example: {:.4f}min".format(NUM_EPOCHS, (time.time() - start) / 60))
+        subgraph, cf_example, time_cost = generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels,
+                                                                        pre_output,
+                                                                        gnn_model, device, idx_test, gcn_layer,
+                                                                        with_bias,
+                                                                        counterfactual_explanation_subgraph_path)
+        print("Time for {} epochs of one example: {:.4f}s".format(NUM_EPOCHS, time_cost))
+        time_list.append(time_cost)
         cfexp_subgraph[target_node] = subgraph
-        test_cf_examples.append(cf_example)
-    print("Total time elapsed: {:.4f}s".format((time.time() - start) / 60))
+        test_cf_examples.append({"data": cf_example, "time_cost": time_cost})
+    print("Total time elapsed: {:.4f}min".format((time.time() - start_0) / 60))
     print("Number of CF examples found: {}/{}".format(len(test_cf_examples), len(target_node_list)))
 
     with open(counterfactual_explanation_subgraph_path + "/cfexp_subgraph.pickle", "wb") as fw:
         pickle.dump(cfexp_subgraph, fw)
 
     # Save CF examples in test set
-    with safe_open(
-            "../results/{}/{}/{}_cf_examples_gcnlayer{}_lr{}_beta{}_mom{}_epochs{}_seed{}".format(DATA_NAME,
-                                                                                                  OPTIMIZER,
-                                                                                                  DATA_NAME,
-                                                                                                  GCN_LAYER,
-                                                                                                  LEARNING_RATE,
-                                                                                                  BETA,
-                                                                                                  N_Momentum,
-                                                                                                  NUM_EPOCHS,
-                                                                                                  SEED_NUM), "wb") as f:
+    with open(
+            counterfactual_explanation_subgraph_path + "/{}_cf_examples_gcnlayer{}_lr{}_beta{}_mom{}_epochs{}_seed{}".format(
+                DATA_NAME,
+                GCN_LAYER,
+                LEARNING_RATE,
+                BETA,
+                N_Momentum,
+                NUM_EPOCHS,
+                SEED_NUM), "wb") as f:
         pickle.dump(test_cf_examples, f)

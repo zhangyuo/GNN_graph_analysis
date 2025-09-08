@@ -174,3 +174,47 @@ def accuracy(pred, labels):
     labels = torch.tensor(labels, dtype=int)
     correct = (pred_labels == labels).float().sum()  # 统计正确预测数
     return correct / len(labels)  # 返回准确率
+
+
+def compute_deg_diff(orig_sub_adj, edited_sub_adj):
+    orig_degrees = torch.sum(orig_sub_adj, dim=1)
+    new_degrees = torch.sum(edited_sub_adj, dim=1)
+    deg_diff = torch.sum(
+        torch.abs(new_degrees - orig_degrees) / (1 + orig_degrees)
+    )
+    return deg_diff
+
+
+def compute_motif_viol(orig_sub_adj, edited_sub_adj, tau_c):
+    orig_cluster_coef = clustering_coefficient(orig_sub_adj)
+    new_cluster_coef = clustering_coefficient(edited_sub_adj)
+    motif_violation = torch.sum(
+        torch.clamp(torch.abs(new_cluster_coef - orig_cluster_coef) - tau_c, min=0.0)
+    )
+    return motif_violation
+
+
+def clustering_coefficient(adj_tensor: torch.Tensor) -> torch.Tensor:
+    """
+    使用 PyTorch 近似计算无向图的局部聚类系数（向量化实现）。
+    注意：这是对传统聚类系数的一种近似，主要用于训练和损失计算。
+    """
+    # 计算每个节点的度
+    degrees = torch.sum(adj_tensor, dim=1)
+
+    # 计算 A²，其对角线元素是节点邻居之间存在的路径数（每条边被计算两次）
+    A_squared = torch.mm(adj_tensor, adj_tensor)
+    # 节点i的邻居之间实际存在的边数近似为 (A_squared[i, i] - degrees[i]) / 2.0
+    # 减 degrees[i] 是因为邻接矩阵对角线（自环）也被计算在内，通常需要减去
+    # 这里简化处理，直接使用 A_squared 的对角线
+    triangles = torch.diag(A_squared) / 2.0  # 更精确的计算可能需要调整
+
+    # 计算可能存在的最大边数 k*(k-1)/2
+    max_possible_edges = degrees * (degrees - 1) / 2.0
+
+    # 避免除以零：对于度小于2的节点，聚类系数设为0
+    clustering_coeffs = torch.zeros_like(degrees, dtype=torch.float32)
+    valid_mask = (degrees > 1)
+    clustering_coeffs[valid_mask] = triangles[valid_mask] / max_possible_edges[valid_mask]
+
+    return clustering_coeffs

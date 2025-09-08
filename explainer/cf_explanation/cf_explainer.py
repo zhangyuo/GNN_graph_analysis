@@ -122,6 +122,6 @@ class CFExplainer:
                         y_pred_new_actual.item(), self.sub_labels[self.new_idx].item(),
                         self.sub_adj.shape[0], loss_total.item(),
                         loss_pred.item(), loss_graph_dist.item(),
-                        self.sub_labels,]
+                        self.sub_feat]
 
         return (cf_stats, loss_total.item())

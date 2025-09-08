@@ -9,16 +9,16 @@
 # @Desc     :
 """
 # baseline model
-TEST_MODEL = "GCN"  # GCN
+TEST_MODEL = "GCN"  # ["GCN"]
 
 # dataset
-DATA_NAME = "cora"
+DATA_NAME = "cora"  # ["cora"]
 
 # running device
-DEVICE = 'cpu'  # cpu or gpu
+DEVICE = 'cpu'  # ["cpu", "gpu"]
 
 # random seed
-SEED_NUM = 102
+SEED_NUM = 102  # first experiment is 102
 
 ################ GCN model parameters for Cora data ################
 HIDDEN_CHANNELS = 16
@@ -34,10 +34,10 @@ EXPLANATION_TYPE = 'counterfactual'  # ['instance-level', 'class-level', 'counte
 EXPLAINER_METHOD = 'CFExplainer'  # ['GNNExplainer', 'PGExplainer', 'CFExplainer', 'ACExplainer']
 ####################################################################
 
-################ Attack model parameters for Cora data ##############
+################ Attack model parameters for Cora data in graph analysis ##############
 ATTACK_TYPE = 'Evasion'  # ['Evasion', 'Poison'] our project only considers the evasion attack
-ATTACK_BUDGET_LIST = [5]  # [5,4,3,2,1]
 ATTACK_METHOD = 'GOttack'  # GOttack
+ATTACK_BUDGET_LIST = [5]  # [5,4,3,2,1] only can be used in attack graph analysis for similarity analysis
 ####################################################################
 
 ################ CFExplainer parameters for Cora data ##############
@@ -48,6 +48,7 @@ N_Momentum = 0.9  # Nesterov momentum
 ####################################################################
 
 ################ ACExplainer parameters for Cora data ##############
+LEARNING_RATE_AC = 10 ** -2  # learning rate for acexplainer training
 MAX_ATTACK_NODES_NUM = 20  # max number of selected attacked nodes
 NUM_EPOCHS_AC = 200  # Num epochs for explainer
 OPTIMIZER_AC = "SGD"  # SGD or Adadelta or Adam

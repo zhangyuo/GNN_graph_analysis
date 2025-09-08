@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
+from tqdm import tqdm
 
 from utilty.utils import normalize_adj
 from explainer.ac_explanation.gcn_perturb import GNNPerturb
@@ -23,7 +24,7 @@ class ACExplainer:
                  model: nn.Module,
                  target_node: int,
                  node_idx: int,
-                 node_num_l_hop: int,
+                 node_num_l_hop: list,
                  extended_sub_adj: torch.Tensor,
                  sub_feat: torch.Tensor,
                  sub_labels: torch.Tensor,
@@ -143,7 +144,7 @@ class ACExplainer:
 
         self.cf_model.eval()  # 反事实模型g训练阶段采用评估模式，冻结dropout和batchnorm
 
-        for epoch in range(self.epoch):
+        for epoch in tqdm(range(self.epoch)):
             # print(f"\n######## epoch: {epoch + 1} #############")
             self.cf_optimizer.zero_grad()
 
@@ -190,8 +191,7 @@ class ACExplainer:
                 break
 
         if best_delta_A is not None:
-            # 后剪枝
-            pruned_delta_A = self.minimality_pruning(best_delta_A, perturb_layer, full_mask)
+
 
             # 返回结果
             # return {
@@ -200,6 +200,9 @@ class ACExplainer:
             #     "original_pred": self.y_pred_orig,
             #     "new_pred": best_pred
             # }
+
+            # 后剪枝
+            pruned_delta_A = self.minimality_pruning(best_delta_A, perturb_layer, full_mask)
             return {
                 "delta_A": pruned_delta_A,  # 使用剪枝后的扰动
                 "cf_adj": perturb_layer.build_perturbed_adj(
@@ -207,7 +210,8 @@ class ACExplainer:
                     pruned_delta_A
                 ),
                 "original_pred": self.y_pred_orig,
-                "new_pred": self._validate_pruning(pruned_delta_A, perturb_layer)  # 验证预测
+                "new_pred": self._validate_pruning(pruned_delta_A, perturb_layer),  # 验证预测
+                "plau_loss": plau_loss
             }
 
 
@@ -220,11 +224,26 @@ class ACExplainer:
         if edge_indices.size(0) == 0:
             return current_delta
 
-        # 按扰动强度排序（绝对值越大越重要）
-        abs_values = torch.abs(full_mask[edge_indices[:, 0], edge_indices[:, 1]])
-        sorted_indices = torch.argsort(abs_values, descending=True)  # 降序排序
+        # 1. 获取所有待剪枝边的 full_mask 值
+        edge_mask_values = full_mask[edge_indices[:, 0], edge_indices[:, 1]]
 
-        # 从最不重要的边开始尝试移除（低绝对值）
+        # 2. 构建自定义排序键：优先处理加边（正值），然后才是减边（负值）
+        #    技巧：为加边赋予一个大的偏移量（例如 +1000）确保其排在减边之前
+        #    同时保持组内按绝对值降序
+        sorting_key = torch.where(
+            edge_mask_values > 0,
+            1000 + torch.abs(edge_mask_values),  # 加边组：键值范围 [1000, 1000+max_abs]
+            torch.abs(edge_mask_values)  # 减边组：键值范围 [0, max_abs]
+        )
+
+        # 3. 按自定义键降序排序 -> 加边(高键值)在前，减边(低键值)在后；组内绝对值大的在前
+        # 按扰动强度排序（绝对值越大越重要）
+        sorted_indices = torch.argsort(sorting_key, descending=True)  # 降序排序
+
+        # abs_values = torch.abs(full_mask[edge_indices[:, 0], edge_indices[:, 1]])
+        # sorted_indices = torch.argsort(abs_values, descending=True)  # 降序排序
+
+        # 4. 从最不重要的边开始尝试移除（低绝对值）
         for idx in sorted_indices:
             i, j = edge_indices[idx]
             temp_delta = current_delta.clone()

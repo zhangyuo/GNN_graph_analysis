@@ -15,14 +15,14 @@ import networkx as nx
 from deeprobust.graph.defense import GraphConvolution
 import numpy as np
 
-from utilty.utils import normalize_adj, get_degree_matrix
+from utilty.utils import normalize_adj, get_degree_matrix, compute_deg_diff, compute_motif_viol
 
 
 class SignedMaskPerturbation(nn.Module):
     def __init__(self,
                  extended_sub_adj: torch.Tensor,
                  node_idx: int,
-                 node_num_l_hop: int,
+                 node_num_l_hop: list,
                  top_k: int = 5,
                  tau_plus: float = 0.5,
                  tau_minus: float = -0.5):
@@ -53,21 +53,49 @@ class SignedMaskPerturbation(nn.Module):
         """根据目标节点和扩展子图初始化掩码"""
         eps = 10 ** -4
         mask_init_values = []
+        mask_index = 0
 
-        # 遍历扩展子图中的所有节点（除了目标节点自己）
-        for i in range(self.n_nodes):
-            if i == self.node_idx:
-                continue
+        [node_index, attack_nodes, node_dict] = self.node_num_l_hop
+        attack_nodes_idx = [node_dict[ad] for ad in attack_nodes]
+        lhop_node_index = [node_dict[ni] for ni in node_index]
 
-            # 检查在原始图中是否存在边
-            if self.extended_sub_adj[self.node_idx, i]:
+        # 遍历extended_sub_adj中所有现有边
+        # sub_adj = self.extended_sub_adj[lhop_node_index, :][:, lhop_node_index]
+        init_value = -0.5
+        ones_indices = torch.nonzero(self.extended_sub_adj == 1)
+        non_diagonal_ones = ones_indices[ones_indices[:, 0] != ones_indices[:, 1]].tolist()
+        for i in range(len(non_diagonal_ones)):
+            if non_diagonal_ones[i][0] in lhop_node_index and non_diagonal_ones[i][1] in lhop_node_index and non_diagonal_ones[i][0] < non_diagonal_ones[i][1]:
                 # 现有边初始化为小负数 (倾向删除)
-                mask_init_values.append(-0.5)
-                self.plan_deleted_node_idx.append(i)
-            elif i+1 > self.node_num_l_hop:
-                # 仅针对攻击候选节点的新边初始化为小正数 (倾向添加)
-                mask_init_values.append(-0.1)
-                self.plan_added_node_idx.append(i)
+                mask_init_values.append(init_value)
+                self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i]])
+                mask_index += 1
+        # 遍历所有attack_nodes，针对无现有边场景倾向添加，但需要抑制加边
+        init_value = -0.1
+        for i in attack_nodes_idx:
+            if i != self.node_idx:
+                mask_init_values.append(init_value)
+                self.plan_added_node_idx.append([mask_index, [self.node_idx, i]])
+                mask_index += 1
+
+        # # 遍历扩展子图中的所有节点（除了目标节点自己）
+        # for i in range(self.n_nodes):
+        #     if i == self.node_idx:
+        #         continue
+        #
+        #     # 检查在原始图中是否存在边
+        #     if self.extended_sub_adj[self.node_idx, i]:
+        #         init_value = -0.4
+        #         # 现有边初始化为小负数 (倾向删除)
+        #         mask_init_values.append(init_value)
+        #         self.plan_deleted_node_idx.append([i, mask_index])
+        #         mask_index += 1
+        #     elif i in attack_nodes_idx:
+        #         init_value = -0.2
+        #         # 仅针对目标节点与攻击候选节点无现有边的情况进行初始化 (倾向添加，但需要抑制加边)
+        #         mask_init_values.append(init_value)
+        #         self.plan_added_node_idx.append([i, mask_index])
+        #         mask_index += 1
 
         # 转换为可训练参数--将列表转换为PyTorch张量，并封装为可学习参数(Parameter)
         return nn.Parameter(torch.tensor(mask_init_values, dtype=torch.float32))
@@ -89,12 +117,15 @@ class SignedMaskPerturbation(nn.Module):
                 top_k_M_e = M_e * sparse_mask  # 应用稀疏掩码
 
             full_mask = torch.zeros_like(self.extended_sub_adj)
-            edge_idx = 0
-            for i in range(self.n_nodes):
-                if i != self.node_idx and i in (self.plan_added_node_idx + self.plan_deleted_node_idx):
-                    full_mask[self.node_idx, i] = top_k_M_e[edge_idx]
-                    full_mask[i, self.node_idx] = top_k_M_e[edge_idx]
-                    edge_idx += 1
+            for data in self.plan_added_node_idx + self.plan_deleted_node_idx:
+                full_mask[data[1][0], data[1][1]] = top_k_M_e[data[0]]
+                full_mask[data[1][1], data[1][0]] = top_k_M_e[data[0]]
+            # edge_idx = 0
+            # for i in range(self.n_nodes):
+            #     if i != self.node_idx and i in (self.plan_added_node_idx + self.plan_deleted_node_idx):
+            #         full_mask[self.node_idx, i] = top_k_M_e[edge_idx]
+            #         full_mask[i, self.node_idx] = top_k_M_e[edge_idx]
+            #         edge_idx += 1
 
             # 计算离散值(使用torch.where进行三值化)
             delta_A = torch.where(
@@ -115,12 +146,15 @@ class SignedMaskPerturbation(nn.Module):
         使用直通梯度估计器保持可微性
         """
         full_mask = torch.zeros_like(self.extended_sub_adj)
-        edge_idx = 0
-        for i in range(self.n_nodes):
-            if i != self.node_idx and i in (self.plan_added_node_idx + self.plan_deleted_node_idx):
-                full_mask[self.node_idx, i] = self.M[edge_idx]
-                full_mask[i, self.node_idx] = self.M[edge_idx]
-                edge_idx += 1
+        for data in self.plan_added_node_idx + self.plan_deleted_node_idx:
+            full_mask[data[1][0], data[1][1]] = self.M[data[0]]
+            full_mask[data[1][1], data[1][0]] = self.M[data[0]]
+        # edge_idx = 0
+        # for i in range(self.n_nodes):
+        #     if i != self.node_idx and i in (self.plan_added_node_idx + self.plan_deleted_node_idx):
+        #         full_mask[self.node_idx, i] = self.M[edge_idx]
+        #         full_mask[i, self.node_idx] = self.M[edge_idx]
+        #         edge_idx += 1
         return full_mask
 
     def predict_forward(self) -> torch.Tensor:
@@ -173,7 +207,7 @@ class GNNPerturb(nn.Module):
                  extended_sub_adj: torch.Tensor,
                  sub_feat: torch.Tensor,
                  node_idx: int,
-                 node_num_l_hop: int,
+                 node_num_l_hop: list,
                  dropout: float = 0.5,
                  lambda_pred: float = 1.0,
                  lambda_dist: float = 0.5,
@@ -338,18 +372,13 @@ class GNNPerturb(nn.Module):
             loss_components_1 = loss_components_1 / add_mask.sum()
 
         # 2. 度分布惩罚
-        orig_degrees = torch.sum(self.extended_sub_adj, dim=1)
-        new_degrees = torch.sum(self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A), dim=1)
-        deg_diff = torch.abs(new_degrees - orig_degrees) / (1 + orig_degrees)
-        loss_components_2 = torch.sum(deg_diff) * self.α2
+        orig_sub_adj= self.extended_sub_adj
+        edited_sub_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
+        deg_diff = compute_deg_diff(orig_sub_adj, edited_sub_adj)
+        loss_components_2 = deg_diff * self.α2
 
         # 3. penalty of clustering coefficients drastic changes
-        orig_cluster_coef = self.clustering_coefficient(self.extended_sub_adj)
-        new_cluster_coef = self.clustering_coefficient(
-            self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A))
-        motif_violation = torch.sum(
-            torch.clamp(torch.abs(new_cluster_coef - orig_cluster_coef) - self.tau_c, min=0.0)
-        )
+        motif_violation = compute_motif_viol(orig_sub_adj, edited_sub_adj, self.tau_c)
 
         # nodes = list(orig_sub_g.nodes())
         # n = len(nodes)
@@ -373,8 +402,6 @@ class GNNPerturb(nn.Module):
         violation_count = 0
         if add_mask.sum() > 0 and publish_year:
             target_year = publish_year[self.node_idx]
-            # 计算特征相似度
-            target_feat = self.sub_feat[self.node_idx]
             for i in range(self.extended_sub_adj.size(0)):
                 if add_mask[self.node_idx, i]:
                     year_i = publish_year[i]
@@ -390,28 +417,3 @@ class GNNPerturb(nn.Module):
         loss_components = loss_components_1 + loss_components_2 + loss_components_3 + loss_components_4
 
         return loss_components
-
-    def clustering_coefficient(self, adj_tensor: torch.Tensor) -> torch.Tensor:
-        """
-        使用 PyTorch 近似计算无向图的局部聚类系数（向量化实现）。
-        注意：这是对传统聚类系数的一种近似，主要用于训练和损失计算。
-        """
-        # 计算每个节点的度
-        degrees = torch.sum(adj_tensor, dim=1)
-
-        # 计算 A²，其对角线元素是节点邻居之间存在的路径数（每条边被计算两次）
-        A_squared = torch.mm(adj_tensor, adj_tensor)
-        # 节点i的邻居之间实际存在的边数近似为 (A_squared[i, i] - degrees[i]) / 2.0
-        # 减 degrees[i] 是因为邻接矩阵对角线（自环）也被计算在内，通常需要减去
-        # 这里简化处理，直接使用 A_squared 的对角线
-        triangles = torch.diag(A_squared) / 2.0  # 更精确的计算可能需要调整
-
-        # 计算可能存在的最大边数 k*(k-1)/2
-        max_possible_edges = degrees * (degrees - 1) / 2.0
-
-        # 避免除以零：对于度小于2的节点，聚类系数设为0
-        clustering_coeffs = torch.zeros_like(degrees, dtype=torch.float32)
-        valid_mask = (degrees > 1)
-        clustering_coeffs[valid_mask] = triangles[valid_mask] / max_possible_edges[valid_mask]
-
-        return clustering_coeffs

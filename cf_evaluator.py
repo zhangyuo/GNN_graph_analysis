@@ -184,13 +184,13 @@ def charact_score(cf_examples):
 
 
 def main():
-    # Configuration
-    results_path = "../results/2025-09-04/counterfactual_subgraph/attack_GOttack_counterfactual_ACExplainer_cora_budget[5,10]"
-    dataset_path = "../dataset"
-
-    # Load data and results
-    data = Dataset(root=dataset_path, name="cora")
-    cf_examples, cf_subgraphs = load_results(results_path)
+    # # Configuration
+    # results_path = "../results/2025-09-04/counterfactual_subgraph/attack_GOttack_counterfactual_ACExplainer_cora_budget[5,10]"
+    # dataset_path = "../dataset"
+    #
+    # # Load data and results
+    # data = Dataset(root=dataset_path, name="cora")
+    # cf_examples, cf_subgraphs = load_results(results_path)
 
     # Compute evaluation metrics
     metrics = evaluate_explanations(

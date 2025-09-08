@@ -4,7 +4,7 @@
 # @Time     : 2025/8/27 20:19
 # @Author   : Yu Zhang
 # @Email    : yuzhang@cs.aau.dk
-# @File     : acexplainer_suubgraph.py
+# @File     : acexplainer_subgraph.py
 # @Software : PyCharm
 # @Desc     :
 """
@@ -48,6 +48,7 @@ def generate_acexplainer_subgraph(df_orbit,
     """
     生成AC-Explainer解释
     """
+    start = time.time()
     # 1. 提取目标节点的l-hop子图
     node_index, edge_index, mapping, _ = k_hop_subgraph(
         node_idx=target_node,
@@ -57,13 +58,13 @@ def generate_acexplainer_subgraph(df_orbit,
         num_nodes=pyg_data.edge_index.max() + 1
     )
 
-    node_num_l_hop = len(node_index)
-
     # 2. 获取攻击节点并映射到原始图索引
     attack_nodes = get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, attack_method, top_t)
 
+    node_index = node_index.tolist()
+
     # 3. 构建扩展节点集合 (l-hop节点 + 攻击节点)
-    extended_nodes = list(set(node_index.tolist() + attack_nodes))
+    extended_nodes = list(set(node_index + attack_nodes))
     extended_nodes.sort()
 
     # 4. 高效创建扩展子图的邻接矩阵和原始掩码矩阵
@@ -78,6 +79,15 @@ def generate_acexplainer_subgraph(df_orbit,
     # 6. 找到目标节点在扩展子图中的新索引
     target_node_idx = extended_nodes.index(target_node)
     node_dict = {int(orig_id): idx for idx, orig_id in enumerate(extended_nodes)}
+    node_index_1, _, _, _ = k_hop_subgraph(
+        node_idx=target_node,
+        num_hops=1,
+        edge_index=pyg_data.edge_index,
+        relabel_nodes=True,
+        num_nodes=pyg_data.edge_index.max() + 1
+    )
+    node_index_1 = node_index_1.tolist()
+    node_num_l_hop = [node_index_1, attack_nodes, node_dict]
 
     # test model log-probability output is same to original prediction output
     print("Output original model, full adj: {}".format(output[target_node]))
@@ -103,7 +113,7 @@ def generate_acexplainer_subgraph(df_orbit,
         epoch=NUM_EPOCHS_AC,
         optimizer=OPTIMIZER_AC,
         n_momentum=N_Momentum_AC,
-        lr=LEARNING_RATE,
+        lr=LEARNING_RATE_AC,
         top_k=MAX_EDITS,
         tau_plus=TAU_PLUS,
         tau_minus=TAU_MINUS,
@@ -120,9 +130,11 @@ def generate_acexplainer_subgraph(df_orbit,
     # 8. 训练解释器
     result = explainer.explain()
 
+    time_cost = time.time() - start
+
     if result is None:
         print({"error": "No valid counterfactual found"})
-        return None
+        return None, time_cost
 
     # 9. 映射回原始图索引
     added_edges = []
@@ -160,19 +172,25 @@ def generate_acexplainer_subgraph(df_orbit,
     print("Visualize ok for counterfactual explanation subgraph")
 
     return {
+        "target_node": target_node,
+        "new_idx": target_node_idx,
         "added_edges": added_edges,
         "removed_edges": removed_edges,
+        "explanation_size": len(added_edges) + len(removed_edges),
+        "plau_loss": result["plau_loss"],
         "original_pred": result["original_pred"],
         "new_pred": result["new_pred"],
         "extended_nodes": extended_nodes,
+        "extended_adj": extended_adj,
         "cf_adj": result["cf_adj"],
+        "extended_feat": extended_feat,
         "subgraph": subgraph,
         "true_subgraph": true_subgraph,
-        "E_type": E_type
-    }
+        "E_type": E_type,
+    }, time_cost
 
 
-def get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data,  method="GOttack", top_t=10):
+def get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, method="GOttack", top_t=10):
     """获取攻击节点列表"""
     if method == "GOttack":
         # 实现GOttack攻击方法，返回高影响力节点
@@ -262,7 +280,7 @@ if __name__ == '__main__':
     with_bias = WITH_BIAS
     gcn_layer = GCN_LAYER
     attack_type = ATTACK_TYPE
-    explanation_type = "counterfactual"
+    explanation_type = EXPLANATION_TYPE
     attack_method = ATTACK_METHOD
     attack_budget_list = ATTACK_BUDGET_LIST
     explainer_method = "ACExplainer"
@@ -306,39 +324,39 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    # target_node_list = target_node_list[150:170]
+    # target_node_list = target_node_list[150:160]
 
     ######################### GNN explainer generate  #########################
     df_orbit = OrbitTableGenerator(dataset_name).generate_orbit_table()
     attack_model = OrbitAttack(gnn_model, df_orbit, nnodes=adj.shape[0], device=device)  # initialize the attack model
     # Get CF examples in test set
-    start = time.time()
+    start_0 = time.time()
     test_cf_examples = []
     cfexp_subgraph = {}
+    time_list = []
     for target_node in tqdm(target_node_list):
-        cf_example = generate_acexplainer_subgraph(df_orbit, attack_model, target_node, data, pyg_data, gnn_model,
-                                                   pre_output,
-                                                   gcn_layer, attack_method, top_t, device, nhid, dropout, with_bias)
+        cf_example, time_cost = generate_acexplainer_subgraph(df_orbit, attack_model, target_node, data, pyg_data, gnn_model,
+                                                   pre_output, gcn_layer, attack_method, top_t, device, nhid, dropout,
+                                                   with_bias)
         # print(cf_example)
-        print("Time for {} epochs of one example: {:.4f}min".format(200, (time.time() - start) / 60))
-        if cf_example:
-            cfexp_subgraph[target_node] = cf_example["subgraph"]
-            test_cf_examples.append(cf_example)
-    print("Total time elapsed: {:.4f}s".format((time.time() - start) / 60))
+        print("Time for {} epochs of one example: {:.4f}s".format(200, time_cost))
+        time_list.append(time_cost)
+        cfexp_subgraph[target_node] = cf_example["subgraph"] if cf_example else None
+        test_cf_examples.append({"data": cf_example, "time_cost": time_cost})
+    print("Total time elapsed: {:.4f}min".format((time.time() - start_0) / 60))
     print("Number of CF examples found: {}/{}".format(len(test_cf_examples), len(target_node_list)))
 
     with open(counterfactual_explanation_subgraph_path + "/cfexp_subgraph.pickle", "wb") as fw:
         pickle.dump(cfexp_subgraph, fw)
 
     # Save CF examples in test set
-    with safe_open(
-            "../results/{}/{}/{}_cf_examples_gcnlayer{}_lr{}_beta{}_mom{}_epochs{}_seed{}".format(DATA_NAME,
-                                                                                                  OPTIMIZER,
-                                                                                                  DATA_NAME,
-                                                                                                  GCN_LAYER,
-                                                                                                  LEARNING_RATE,
-                                                                                                  BETA,
-                                                                                                  N_Momentum,
-                                                                                                  NUM_EPOCHS,
-                                                                                                  SEED_NUM), "wb") as f:
+    with open(
+            counterfactual_explanation_subgraph_path + "/{}_cf_examples_gcnlayer{}_lr{}_beta{}_mom{}_epochs{}_seed{}".format(
+                DATA_NAME,
+                GCN_LAYER,
+                LEARNING_RATE,
+                BETA,
+                N_Momentum,
+                NUM_EPOCHS,
+                SEED_NUM), "wb") as f:
         pickle.dump(test_cf_examples, f)

@@ -156,26 +156,27 @@ class ACExplainer:
             y_pred_new_actual = torch.argmax(output_actual[self.node_idx])
 
             # 计算损失
-            total_loss, pred_loss, dist_loss, plau_loss, cf_adj, delta_A, perturb_layer, full_mask = self.cf_model.compute_losses(output,
-                                                                                                        self.y_pred_orig,
-                                                                                                        y_pred_new_actual)
+            total_loss, pred_loss, dist_loss, plau_loss, cf_adj, delta_A, perturb_layer, full_mask = self.cf_model.compute_losses(
+                output,
+                self.y_pred_orig,
+                y_pred_new_actual)
 
             # 反向传播
             total_loss.backward()
             clip_grad_norm_(self.cf_model.parameters(), 2.0)  # 裁剪梯度幅度
             self.cf_optimizer.step()
-
-            print('Target node: {}'.format(self.target_node),
-                  'New idx: {}'.format(self.node_idx),
-                  'Epoch: {:04d}'.format(epoch + 1),
-                  'loss: {:.4f}'.format(total_loss.item()),
-                  'pred loss: {:.4f}'.format(pred_loss.item()),
-                  'dist loss: {:.4f}'.format(dist_loss.item()),
-                  'plau loss: {:.4f}'.format(plau_loss.item()))
-            print('Output: {}\n'.format(output[self.node_idx].data),
-                  'Output nondiff: {}\n'.format(output_actual[self.node_idx].data),
-                  'orig pred: {}, new pred: {}, new pred nondiff: {}'.format(self.y_pred_orig, y_pred_new,
-                                                                             y_pred_new_actual))
+            if epoch % 20 == 0:
+                print('Target node: {}'.format(self.target_node),
+                      'New idx: {}'.format(self.node_idx),
+                      'Epoch: {:04d}'.format(epoch + 1),
+                      'loss: {:.4f}'.format(total_loss.item()),
+                      'pred loss: {:.4f}'.format(pred_loss.item()),
+                      'dist loss: {:.4f}'.format(dist_loss.item()),
+                      'plau loss: {:.4f}'.format(plau_loss.item()))
+                print('Output: {}\n'.format(output[self.node_idx].data),
+                      'Output nondiff: {}\n'.format(output_actual[self.node_idx].data),
+                      'orig pred: {}, new pred: {}, new pred nondiff: {}'.format(self.y_pred_orig, y_pred_new,
+                                                                                 y_pred_new_actual))
             print(" ")
             # 早停检查
             if y_pred_new_actual != self.y_pred_orig and total_loss.item() < best_loss:
@@ -191,8 +192,6 @@ class ACExplainer:
                 break
 
         if best_delta_A is not None:
-
-
             # 返回结果
             # return {
             #     "delta_A": best_delta_A,
@@ -213,7 +212,6 @@ class ACExplainer:
                 "new_pred": self._validate_pruning(pruned_delta_A, perturb_layer),  # 验证预测
                 "plau_loss": plau_loss
             }
-
 
         return None
 

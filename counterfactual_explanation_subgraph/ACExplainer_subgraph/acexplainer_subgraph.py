@@ -11,6 +11,9 @@
 import os
 import pickle
 import sys
+import warnings
+
+warnings.filterwarnings("ignore")
 import time
 from datetime import datetime
 
@@ -32,7 +35,6 @@ import torch.nn.functional as F
 
 
 def generate_acexplainer_subgraph(df_orbit,
-                                  attack_model,
                                   target_node: int,
                                   data,
                                   pyg_data,
@@ -59,6 +61,8 @@ def generate_acexplainer_subgraph(df_orbit,
     )
 
     # 2. 获取攻击节点并映射到原始图索引
+    attack_model = OrbitAttack(gnn_model, df_orbit, nnodes=data.adj.shape[0],
+                               device=device)  # initialize the attack model
     attack_nodes = get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, attack_method, top_t)
 
     node_index = node_index.tolist()
@@ -215,6 +219,7 @@ def get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, method
         # High Impact Prioritization
         attack_model.attack_cf(data.features, data.adj, data.labels, target_node, top_t, high_sim_node=high_sim_node)
         best_edges = attack_model.best_edge_list
+        print("best edges: ", len(best_edges))
 
         return [node[1] for node in best_edges]
 
@@ -324,20 +329,20 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    # target_node_list = target_node_list[150:160]
+    # target_node_list = target_node_list[384:500]
 
     ######################### GNN explainer generate  #########################
     df_orbit = OrbitTableGenerator(dataset_name).generate_orbit_table()
-    attack_model = OrbitAttack(gnn_model, df_orbit, nnodes=adj.shape[0], device=device)  # initialize the attack model
     # Get CF examples in test set
     start_0 = time.time()
     test_cf_examples = []
     cfexp_subgraph = {}
     time_list = []
     for target_node in tqdm(target_node_list):
-        cf_example, time_cost = generate_acexplainer_subgraph(df_orbit, attack_model, target_node, data, pyg_data, gnn_model,
-                                                   pre_output, gcn_layer, attack_method, top_t, device, nhid, dropout,
-                                                   with_bias)
+        cf_example, time_cost = generate_acexplainer_subgraph(df_orbit, target_node, data, pyg_data, gnn_model,
+                                                              pre_output, gcn_layer, attack_method, top_t, device, nhid,
+                                                              dropout,
+                                                              with_bias)
         # print(cf_example)
         print("Time for {} epochs of one example: {:.4f}s".format(200, time_cost))
         time_list.append(time_cost)

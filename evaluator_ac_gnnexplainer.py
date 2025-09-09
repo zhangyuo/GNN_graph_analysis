@@ -14,7 +14,7 @@ import sys
 
 from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANATION_TYPE, DATA_NAME, ATTACK_BUDGET_LIST, \
     TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α2, α3, \
-    TAU_C
+    TAU_C, LEARNING_RATE_AC
 from model.GCN import load_GCN_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol
 import numpy as np
@@ -31,7 +31,7 @@ sys.path.insert(0, base_path)
 ######################### evaluated parameters setting  #########################
 attack_type = ATTACK_TYPE
 attack_method = ATTACK_METHOD
-explainer_method = "CFExplainer"
+explainer_method = "ACExplainer"
 explanation_type = EXPLANATION_TYPE
 dataset_name = DATA_NAME
 attack_budget_list = ATTACK_BUDGET_LIST
@@ -39,7 +39,7 @@ test_model = TEST_MODEL
 gcn_layer = GCN_LAYER
 nhid = HIDDEN_CHANNELS
 dropout = DROPOUT
-lr = LEARNING_RATE
+lr = LEARNING_RATE_AC
 weight_decay = WEIGHT_DECAY
 with_bias = WITH_BIAS
 device = DEVICE
@@ -77,11 +77,12 @@ target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation
 target_node_list += target_node_list1
 
 ######################### Load CF examples  #########################
-header = ["node_idx", "new_idx", "cf_adj", "sub_adj", "y_pred_orig", "y_pred_new", "y_pred_new_actual",
-          "label", "num_nodes", "loss_total", "loss_pred", "loss_graph_dist", "sub_feat"]
+header = ['target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'plau_loss', 'original_pred',
+          'new_pred', 'extended_nodes', 'extended_adj', 'cf_adj', 'extended_feat', 'subgraph', 'true_subgraph',
+          'E_type']
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-08-CF-GNNExplainer_all_explanations'
+time_name = '2025-09-09'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
@@ -92,9 +93,9 @@ with open(
     time_list = []
     for example in cf_examples:
         time_list.append(example["time_cost"])
-        if example["data"] != []:
-            df_prep.append(example["data"][0])
-    df = pd.DataFrame(df_prep, columns=header)
+        if example["data"]:
+            df_prep.append(example["data"])
+    df = pd.DataFrame(df_prep, columns=df_prep[0].keys())
 
 ######################### Metrics Evaluation  #########################
 num_edges_adj = (sum(sum(dense_adj)) / 2).item()
@@ -102,33 +103,30 @@ L_plau = 0.0
 ps_num = 0
 for i in df.index:
     # plausibility
-    orig_sub_adj = torch.tensor(df["sub_adj"][i])
     edited_sub_adj = torch.tensor(df["cf_adj"][i])
-    L_plau += α2 * compute_deg_diff(orig_sub_adj, edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
-                                                                                            edited_sub_adj, tau_c)
+    L_plau += df["plau_loss"][i]
     # accuracy using F_NS
     edited_norm_adj = normalize_adj(edited_sub_adj)
-    sub_feat = df["sub_feat"][i]
+    sub_feat = df["extended_feat"][i]
     ps_label = gnn_model.forward(sub_feat, edited_norm_adj)
-    label_pred_orig = y_pred_orig[df["node_idx"][i]].argmax()
+    label_pred_orig = y_pred_orig[df["target_node"][i]].argmax()
     ps_label_pred_new_actual = ps_label[df["new_idx"][i]].argmax()
     if label_pred_orig == ps_label_pred_new_actual:
         ps_num += 1
-L_plau = L_plau / len(df)
+L_plau = L_plau.item() / len(df)
 ps = ps_num / len(target_node_list)
 pn = len(df) / len(target_node_list)
 F_NS = 2 * ps * pn / (ps + pn)
 
 print("Num cf examples found: {}/{}".format(len(df), len(target_node_list)))
 print("Metric 1 - Fidelity+: {}".format(1 - len(df) / len(target_node_list)))
-print("Metric 2 - Average Explanation Size: {}, std: {}".format(np.mean(df["loss_graph_dist"]),
-                                                                np.std(df["loss_graph_dist"])))
-print("Metric 3 - Average Sparsity: {}, std: {}".format(np.mean(1 - df["loss_graph_dist"] / num_edges_adj),
-                                                        np.std(1 - df["loss_graph_dist"] / num_edges_adj)))
-print("Metric 4 - Average Plausibility: {}".format(1-1 / (1 + np.exp(-1 * 0.05 * L_plau))))
+print("Metric 2 - Average Explanation Size: {}, std: {}".format(np.mean(df["explanation_size"]),
+                                                                np.std(df["explanation_size"])))
+print("Metric 3 - Average Sparsity: {}, std: {}".format(np.mean(1 - df["explanation_size"] / num_edges_adj),
+                                                        np.std(1 - df["explanation_size"] / num_edges_adj)))
+print("Metric 4 - Average Plausibility: {}".format(1 - 1 / (1 + np.exp(-1 * 0.05 * L_plau))))
 print("Metric 5 - Average Accuracy: {}".format(F_NS))
 print("Metric 6 - Average Time Cost: {:.4f}s/per".format(np.mean(np.array(time_list))))
-
 
 # # Add num edges
 # num_edges = []

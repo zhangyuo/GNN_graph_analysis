@@ -37,8 +37,9 @@ from subgraph_quantify.structual_similarity.graph_edit_distance import compute_g
 from subgraph_quantify.structual_similarity.maximum_commom_subgraph import maximum_common_subgraph
 from utilty.attack_visualization import visualize_attack_subgraph, generate_timestamp_key
 from torch_geometric.data import Data
-from torch_geometric.explain import Explainer, GNNExplainer
+from torch_geometric.explain import Explainer, GNNExplainer, PGExplainer
 from torch_geometric.utils import from_networkx, subgraph
+from torch_geometric.transforms import RandomNodeSplit
 
 from utilty.clean_subgraph_visualization import visualize_restricted_clean_subgraph
 from utilty.maximum_common_graph_visualization import mx_com_graph_view
@@ -350,6 +351,59 @@ def gnn_explainer_generate(gnn_model, device, features, labels, gcn_layer):
             return_type='log_probs'
         )
     )
+    return explainer
+
+
+def pg_explainer_generate(gnn_model, device, features, labels, gcn_layer, pyg_data):
+    pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
+    # transform = RandomNodeSplit(split='train_rest', num_val=0.2, num_test=0.2)
+    # pyg_data = transform(pyg_data)
+
+    # Create explainer (using PyG-formatted data)
+    explainer = Explainer(
+        model=pyg_gcn,
+        algorithm=PGExplainer(
+            epochs=30,  # 减少训练轮次
+            # lr=0.1,  # 提高学习率
+            log=False,  # 禁用日志
+            # coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # 添加正则化防止梯度爆炸
+        ),
+        explanation_type='phenomenon',  # PGExplainer only supports explanations of the 'phenomenon' type
+        edge_mask_type='object',  # PGExplainer主要生成边掩码
+        model_config=dict(
+            mode='multiclass_classification',
+            task_level='node',
+            return_type='log_probs'
+        )
+    )
+    # PGExplainer needs to be trained based on nodes set after initializing
+    train_indices = pyg_data.train_mask.nonzero(as_tuple=True)[0]  # 获取训练节点索引
+
+    # 新增：过滤掉可能产生空子图的节点（如孤立节点）
+    valid_train_indices = []
+    for idx in train_indices:
+        # 计算节点的度（邻居数）
+        degree = (pyg_data.edge_index[0] == idx).sum().item()
+        if degree > 0:  # 只保留有邻居的节点
+            valid_train_indices.append(idx)
+    train_indices = torch.tensor(valid_train_indices)
+
+    if len(train_indices) == 0:
+        raise ValueError("没有找到有效的训练节点（所有训练节点可能都是孤立的）")
+
+    for epoch in tqdm(range(30)):
+        for index in train_indices:
+            # Calculate the loss for each node and update the parameters of PGExplainer
+            # 将索引转换为标量
+            index_tensor = index.unsqueeze(0) if index.dim() == 0 else index
+            loss = explainer.algorithm.train(
+                epoch,
+                pyg_gcn,
+                pyg_data.x,
+                pyg_data.edge_index,
+                target=pyg_data.y.to(torch.long),
+                index=index_tensor  # 传入标量
+            )
     return explainer
 
 

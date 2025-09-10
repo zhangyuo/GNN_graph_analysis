@@ -4,7 +4,7 @@
 # @Time     : 2025/9/4 17:17
 # @Author   : Yu Zhang
 # @Email    : yuzhang@cs.aau.dk
-# @File     : cf_evaluator.py
+# @File     : evaluator_cf_gnnexplainer.py
 # @Software : PyCharm
 # @Desc     :
 """

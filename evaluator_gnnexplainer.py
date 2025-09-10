@@ -4,7 +4,7 @@
 # @Time     : 2025/9/4 17:17
 # @Author   : Yu Zhang
 # @Email    : yuzhang@cs.aau.dk
-# @File     : evaluator_ac_gnnexplainer.py
+# @File     : evaluator_gnnexplainer.py
 # @Software : PyCharm
 # @Desc     :
 """
@@ -31,7 +31,7 @@ sys.path.insert(0, base_path)
 ######################### evaluated parameters setting  #########################
 attack_type = ATTACK_TYPE
 attack_method = ATTACK_METHOD
-explainer_method = "ACExplainer"
+explainer_method = "GNNExplainer"
 explanation_type = EXPLANATION_TYPE
 dataset_name = DATA_NAME
 attack_budget_list = ATTACK_BUDGET_LIST
@@ -39,7 +39,7 @@ test_model = TEST_MODEL
 gcn_layer = GCN_LAYER
 nhid = HIDDEN_CHANNELS
 dropout = DROPOUT
-lr = LEARNING_RATE
+lr = LEARNING_RATE_AC
 weight_decay = WEIGHT_DECAY
 with_bias = WITH_BIAS
 device = DEVICE
@@ -82,11 +82,11 @@ header = ['target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation
           'E_type']
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-09-AC-GNNExplainer_all_explanations'
+time_name = '2025-09-09'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
-        counterfactual_explanation_subgraph_path + "/cora_cf_examples_gcnlayer2_lr0.01_beta0.5_mom0.9_epochs500_seed102",
+        counterfactual_explanation_subgraph_path + "/cora_cf_examples_gcnlayer2_lr0.01_seed102",
         "rb") as f:
     cf_examples = pickle.load(f)
     df_prep = []
@@ -105,7 +105,8 @@ for i in df.index:
     # plausibility
     orig_sub_adj = torch.tensor(df["extended_adj"][i])
     edited_sub_adj = torch.tensor(df["cf_adj"][i])
-    L_plau += df["plau_loss"][i]
+    L_plau += α2 * compute_deg_diff(orig_sub_adj, edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
+                                                                                            edited_sub_adj, tau_c)
     # accuracy using F_NS
     edited_norm_adj = normalize_adj(edited_sub_adj)
     sub_feat = df["extended_feat"][i]

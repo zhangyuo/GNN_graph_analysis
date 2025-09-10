@@ -291,18 +291,47 @@ def adj_to_edge_index(adj):
     edge_array = np.vstack([coo_adj.row, coo_adj.col])
     return torch.tensor(edge_array, dtype=torch.long)
 
-
 def dr_data_to_pyg_data(adj, features, labels):
     """
     transfer deeprobust data to pyg data
     :return:
     """
     features_dense = features.toarray() if issparse(features) else features
+
     pyg_data = Data(
         x=torch.tensor(features_dense, dtype=torch.float),
         edge_index=adj_to_edge_index(adj),
         # adj=torch.tensor(adj.toarray(), dtype=torch.float) if str(type(adj)) != "<class 'torch.Tensor'>" else adj,
         y=torch.tensor(labels)
+    )
+    return pyg_data
+
+
+def dr_data_to_pyg_data_mask(adj, features, labels, idx_train, idx_val, idx_test):
+    """
+    transfer deeprobust data to pyg data
+    :return:
+    """
+    features_dense = features.toarray() if issparse(features) else features
+
+    # creat bool mask
+    num_nodes = features.shape[0]
+    train_mask = torch.zeros(num_nodes, dtype=torch.bool)
+    val_mask = torch.zeros(num_nodes, dtype=torch.bool)
+    test_mask = torch.zeros(num_nodes, dtype=torch.bool)
+
+    train_mask[idx_train] = True
+    val_mask[idx_val] = True
+    test_mask[idx_test] = True
+
+    pyg_data = Data(
+        x=torch.tensor(features_dense, dtype=torch.float),
+        edge_index=adj_to_edge_index(adj),
+        # adj=torch.tensor(adj.toarray(), dtype=torch.float) if str(type(adj)) != "<class 'torch.Tensor'>" else adj,
+        y=torch.tensor(labels),
+        train_mask=train_mask,
+        val_mask=val_mask,
+        test_mask=test_mask
     )
     return pyg_data
 

@@ -66,7 +66,7 @@ def generate_acexplainer_subgraph(df_orbit,
 
     # 2. 获取攻击节点并映射到原始图索引
     attack_model = OrbitAttack(surrogate, df_orbit, nnodes=data.adj.shape[0],
-                               device=device, top_t=top_t)  # initialize the attack model
+                               device=device, top_t=top_t, gcn_layer=gcn_layer)  # initialize the attack model
     attack_nodes = get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, attack_method, top_t)
 
     node_index = node_index.tolist()
@@ -228,7 +228,10 @@ def get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, method
         best_edges = attack_model.best_edge_list
         print("best edges: ", len(best_edges))
 
-        return [node[1] for node in best_edges]
+        attck_nodes = [node[1] for node in best_edges]
+        attck_nodes = list(set(attck_nodes))
+
+        return attck_nodes
 
     else:
         # 其他攻击方法
@@ -357,7 +360,8 @@ if __name__ == '__main__':
     pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
 
     if gcn_layer != 2:
-        surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # 代理损失:gnn model
+        # surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # 代理损失:gnn model
+        surrogate = gnn_model
     else:
         surrogate = gnn_model
 

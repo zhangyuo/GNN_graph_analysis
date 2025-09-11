@@ -48,8 +48,13 @@ class OrbitAttack(BaseAttack):
         self.potential_edges = []
         self.best_edge_list=[]
         self.matching_index = orbit_dict.index[orbit_dict[orbit_type] == attack_type].tolist()
-        if len(self.matching_index) < kwargs['top_t']:
-            self.matching_index += orbit_dict.index[orbit_dict[orbit_type] == '1519'].tolist()
+        if kwargs.get('top_t', None):
+            if len(self.matching_index) < kwargs['top_t']:
+                self.matching_index += orbit_dict.index[orbit_dict[orbit_type] == '1519'].tolist()
+        if kwargs.get('gcn_layer', None):
+            self.gcn_layer = kwargs['gcn_layer']
+        else:
+            self.gcn_layer = 2
 
         self.cooc_constraint = None
 
@@ -69,7 +74,10 @@ class OrbitAttack(BaseAttack):
 
     def get_linearized_weight(self):
         surrogate = self.surrogate
-        W = surrogate.gc1.weight @ surrogate.gc2.weight
+        if self.gcn_layer == 3:
+            W = surrogate.gc1.weight @ surrogate.gc2.weight @ surrogate.gc3.weight
+        else:
+            W = surrogate.gc1.weight @ surrogate.gc2.weight
         return W.detach().cpu().numpy()
 
     def attack(self, features, adj, labels, target_node, n_perturbations, n_influencers= 0, verbose=True, **kwargs):

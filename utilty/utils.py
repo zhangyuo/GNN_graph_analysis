@@ -10,6 +10,7 @@ from torch_geometric.utils import k_hop_subgraph, dense_to_sparse, to_dense_adj,
 from deeprobust.graph.utils import classification_margin
 from deeprobust.graph.data import Dataset
 import scipy.sparse as sp
+from torch_geometric.utils import to_undirected
 
 
 def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
@@ -344,6 +345,54 @@ class LoanDecisionDataset(Dataset):
         if exclude is not None:
             valid_nodes = np.setdiff1d(valid_nodes, exclude)
         return np.random.choice(valid_nodes, size=int(ratio * self.num_nodes), replace=False)
+
+
+class OGBNArxivDataset(Dataset):
+    def __init__(self, ogbn_arxiv_data):
+        self.pyg_data = ogbn_arxiv_data[0]
+        self.name = 'ogbn-arxiv'
+        self.num_nodes = self.pyg_data.num_nodes
+        self.num_features = self.pyg_data.num_node_features
+
+        # 提取关键数据组件
+        edge_set = set((u.item(), v.item()) for u, v in self.pyg_data.edge_index.t())
+        is_symmetric = all((v, u) in edge_set for (u, v) in edge_set)
+        print(f"Edge index is symmetric: {is_symmetric}")
+        if not is_symmetric:
+            # self.pyg_data.orgi_edge_index = self.pyg_data.edge_index
+            self.pyg_data.edge_index = to_undirected(self.pyg_data.edge_index)
+
+        self.adj = self.edge_index_to_adj(self.pyg_data.edge_index)
+        # self.orgi_adj = self.edge_index_to_adj(self.pyg_data.orgi_edge_index)
+        self.features = efficient_tensor_to_csr(self.pyg_data.x)
+        self.labels = self.pyg_data.y.numpy()
+
+        # 创建训练0.54-90941/验证0.18-29799/测试掩码0.28-48302
+        split_idx = ogbn_arxiv_data.get_idx_split()
+        self.idx_train = split_idx["train"]
+        self.idx_val = split_idx["valid"]
+        self.idx_test = split_idx["test"]
+
+        # node year
+        self.node_years = self.pyg_data.node_year.numpy().flatten()
+
+    def edge_index_to_adj(self, edge_index):
+        """将 PyG 的 edge_index 转换为邻接矩阵"""
+        import scipy.sparse as sp
+        row, col = edge_index
+        adj = sp.coo_matrix((np.ones(row.shape[0], dtype=np.float32), (row, col)),
+                            shape=(self.num_nodes, self.num_nodes))
+        return adj.tocsr()
+
+    def _create_mask(self, ratio, exclude=None):
+        """创建数据分割掩码"""
+        valid_nodes = np.arange(self.num_nodes)
+        if exclude is not None:
+            valid_nodes = np.setdiff1d(valid_nodes, exclude)
+        return np.random.choice(valid_nodes, size=int(ratio * self.num_nodes), replace=False)
+
+    def get_pyg_data(self):
+        return self.pyg_data
 
 
 def efficient_tensor_to_csr(features):

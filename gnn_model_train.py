@@ -22,7 +22,7 @@ import torch
 from deeprobust.graph.data import Dataset
 from config.config import *
 from model.GCN import GCN_model, load_GCN_model
-from utilty.utils import normalize_adj, accuracy, CPU_Unpickler, BAShapesDataset
+from utilty.utils import normalize_adj, accuracy, CPU_Unpickler, BAShapesDataset, TreeCyclesDataset
 
 if __name__ == "__main__":
     dataset_name = DATA_NAME
@@ -55,6 +55,14 @@ if __name__ == "__main__":
             pyg_data = CPU_Unpickler(f).load()
         # Create deeprobust Data object
         data = BAShapesDataset(pyg_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'TREE-CYCLES':
+        # Create PyG Data object
+        with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
+            pyg_data = CPU_Unpickler(f).load()
+        # Create deeprobust Data object
+        data = TreeCyclesDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:

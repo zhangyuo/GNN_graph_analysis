@@ -17,7 +17,7 @@ from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANAT
     TAU_C, LEARNING_RATE_AC, NUM_EPOCHS, NUM_EPOCHS_AC
 from model.GCN import load_GCN_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
-    BAShapesDataset
+    BAShapesDataset, TreeCyclesDataset
 import numpy as np
 import os
 import pandas as pd
@@ -65,6 +65,14 @@ elif dataset_name == 'BA-SHAPES':
     # Create deeprobust Data object
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+elif dataset_name == 'TREE-CYCLES':
+    # Create PyG Data object
+    with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
+        pyg_data = CPU_Unpickler(f).load()
+    # Create deeprobust Data object
+    data = TreeCyclesDataset(pyg_data)
+    adj, features, labels = data.adj, data.features, data.labels
+    idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
 else:
     adj, features, labels = None, None, None
     idx_train, idx_val, idx_test = None, None, None
@@ -82,7 +90,7 @@ norm_adj = normalize_adj(dense_adj)
 y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
 
 ######################### select test nodes  #########################
-target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, y_pred_orig, labels)
+target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, y_pred_orig, labels)
 target_node_list += target_node_list1
 
 ######################### Load CF examples  #########################
@@ -91,7 +99,7 @@ header = ['target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation
           'E_type', "sub_labels"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-10'
+time_name = '2025-09-11'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(

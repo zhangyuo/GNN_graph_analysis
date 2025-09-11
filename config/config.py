@@ -12,7 +12,7 @@
 TEST_MODEL = "GCN"  # ["GCN"]
 
 # dataset
-DATA_NAME = "BA-SHAPES"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
+DATA_NAME = "TREE-CYCLES"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
@@ -38,10 +38,18 @@ elif DATA_NAME == "BA-SHAPES":
     HIDDEN_CHANNELS = 100
     DROPOUT = 0
     WITH_BIAS = True
-    WEIGHT_DECAY = 0.001  # weight decay coefficient (l2 normalization) for GCN
+    WEIGHT_DECAY = 0.001
     LEARNING_RATE = 0.001
     GCN_LAYER = 2
     GCN_EPOCHS = 20000
+elif DATA_NAME == "TREE-CYCLES":
+    HIDDEN_CHANNELS = 100
+    DROPOUT = 0
+    WITH_BIAS = True
+    WEIGHT_DECAY = 0.001
+    LEARNING_RATE = 0.001
+    GCN_LAYER = 3
+    GCN_EPOCHS = 5000
 ####################################################################
 
 ################ Attack model parameters for datasets in graph analysis ##############

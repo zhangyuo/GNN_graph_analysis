@@ -12,7 +12,7 @@ from deeprobust.graph.data import Dataset
 import scipy.sparse as sp
 
 
-def select_test_nodes(attack_type, explanation_type, idx_test, ori_output, labels):
+def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
     """
     selecting nodes as reported in nettack paper:
     (i) the 10 nodes with highest margin of classification, i.e. they are clearly correctly classified,
@@ -25,6 +25,13 @@ def select_test_nodes(attack_type, explanation_type, idx_test, ori_output, label
     """
     node_list = []
     node_list1 = []
+    sample_num = {
+        "cora": 10,
+        "BA-SHAPES": 10,
+        "TREE-CYCLES": 30,
+        "Loan-Decision": 30,
+        "ogbn-arxiv": 5
+    }[dataset_name]
     if attack_type is None:
         pass
     else:
@@ -43,10 +50,15 @@ def select_test_nodes(attack_type, explanation_type, idx_test, ori_output, label
         other = []
         for class_num in set(labels):
             class_num_sorted_margins = [x for x, y in sorted_margins if labels[x] == class_num]
-            high += [x for x in class_num_sorted_margins[: 10]]
-            low += [x for x in class_num_sorted_margins[-10:]]
-            other_0 = [x for x in class_num_sorted_margins[10: -10]]
-            other += np.random.choice(other_0, 20, replace=False).tolist()
+            high += [x for x in class_num_sorted_margins[: sample_num]]
+            low += [x for x in class_num_sorted_margins[-sample_num:]]
+            other_0 = [x for x in class_num_sorted_margins[sample_num: -sample_num]]
+            if len(other_0) > 20:
+                other += np.random.choice(other_0, sample_num, replace=True).tolist()
+            elif len(other_0) > 0:
+                other += np.random.choice(other_0, len(other_0), replace=True).tolist()
+            else:
+                print(f"Warning: Classification other_0 number of class {class_num} is empty，Skip sampling")
 
         node_list += high + low + other
         node_list = [int(x) for x in node_list]
@@ -58,10 +70,12 @@ def select_test_nodes(attack_type, explanation_type, idx_test, ori_output, label
         other = []
         for class_num in set(labels):
             class_num_sorted_margins = [x for x, y in sorted_margins if labels[x] == class_num]
-            high += [x for x in class_num_sorted_margins[: 10]]
-            low += [x for x in class_num_sorted_margins[-10:]]
-            other_0 = [x for x in class_num_sorted_margins[10: -10]]
-            if len(other_0) > 0:
+            high += [x for x in class_num_sorted_margins[: sample_num]]
+            low += [x for x in class_num_sorted_margins[-sample_num:]]
+            other_0 = [x for x in class_num_sorted_margins[sample_num: -sample_num]]
+            if len(other_0) > 20:
+                other += np.random.choice(other_0, sample_num, replace=True).tolist()
+            elif len(other_0) > 0:
                 other += np.random.choice(other_0, len(other_0), replace=True).tolist()
             else:
                 print(f"Warning: Misclassification other_0 number of class {class_num} is empty，Skip sampling")
@@ -251,6 +265,38 @@ class BAShapesDataset(Dataset):
         self.idx_train = self._create_mask(0.1)
         self.idx_val = self._create_mask(0.1, exclude=self.idx_train)
         self.idx_test = self._create_mask(0.8, exclude=np.concatenate([self.idx_train, self.idx_val]))
+
+    def edge_index_to_adj(self, edge_index):
+        """将 PyG 的 edge_index 转换为邻接矩阵"""
+        import scipy.sparse as sp
+        row, col = edge_index
+        adj = sp.coo_matrix((np.ones(row.shape[0], dtype=np.float32), (row, col)),
+                            shape=(self.num_nodes, self.num_nodes))
+        return adj.tocsr()
+
+    def _create_mask(self, ratio, exclude=None):
+        """创建数据分割掩码"""
+        valid_nodes = np.arange(self.num_nodes)
+        if exclude is not None:
+            valid_nodes = np.setdiff1d(valid_nodes, exclude)
+        return np.random.choice(valid_nodes, size=int(ratio * self.num_nodes), replace=False)
+
+
+class TreeCyclesDataset(Dataset):
+    def __init__(self, pyg_data):
+        self.name = 'TREE-CYCLES'
+        self.num_nodes = pyg_data.num_nodes
+        self.num_features = pyg_data.num_node_features
+
+        # 提取关键数据组件
+        self.adj = self.edge_index_to_adj(pyg_data.edge_index)
+        self.features = efficient_tensor_to_csr(pyg_data.x)
+        self.labels = pyg_data.y.numpy()
+
+        # 创建训练/验证/测试掩码
+        self.idx_train = self._create_mask(0.2)
+        self.idx_val = self._create_mask(0.1, exclude=self.idx_train)
+        self.idx_test = self._create_mask(0.7, exclude=np.concatenate([self.idx_train, self.idx_val]))
 
     def edge_index_to_adj(self, edge_index):
         """将 PyG 的 edge_index 转换为邻接矩阵"""

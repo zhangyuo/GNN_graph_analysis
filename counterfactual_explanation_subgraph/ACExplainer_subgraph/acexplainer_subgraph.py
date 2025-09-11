@@ -13,6 +13,8 @@ import pickle
 import sys
 import warnings
 
+from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
+
 warnings.filterwarnings("ignore")
 import time
 from datetime import datetime
@@ -30,7 +32,8 @@ from config.config import *
 from explainer.ac_explanation.ac_explainer import ACExplainer
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
-from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset
+from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
+    TreeCyclesDataset
 import torch.nn.functional as F
 
 
@@ -39,6 +42,7 @@ def generate_acexplainer_subgraph(df_orbit,
                                   data,
                                   pyg_data,
                                   gnn_model,
+                                  surrogate,
                                   output,
                                   gcn_layer: int = 2,
                                   attack_method: str = "GOttack",
@@ -61,8 +65,8 @@ def generate_acexplainer_subgraph(df_orbit,
     )
 
     # 2. 获取攻击节点并映射到原始图索引
-    attack_model = OrbitAttack(gnn_model, df_orbit, nnodes=data.adj.shape[0],
-                               device=device)  # initialize the attack model
+    attack_model = OrbitAttack(surrogate, df_orbit, nnodes=data.adj.shape[0],
+                               device=device, top_t=top_t)  # initialize the attack model
     attack_nodes = get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, attack_method, top_t)
 
     node_index = node_index.tolist()
@@ -201,6 +205,8 @@ def get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, method
         # 实现GOttack攻击方法，返回高影响力节点
         # 1. Feature Similarity > 0.1
         matching_index = df_orbit.index[df_orbit['two_Orbit_type'] == '1518'].tolist()
+        if len(matching_index) < top_t:
+            matching_index += df_orbit.index[df_orbit['two_Orbit_type'] == '1519'].tolist()
         similarities = []
         for i in matching_index:
             if i != target_node:
@@ -319,6 +325,14 @@ if __name__ == '__main__':
         # Create deeprobust Data object
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'TREE-CYCLES':
+        # Create PyG Data object
+        with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
+            pyg_data = CPU_Unpickler(f).load()
+        # Create deeprobust Data object
+        data = TreeCyclesDataset(pyg_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:
         adj, features, labels = None, None, None
         idx_train, idx_val, idx_test = None, None, None
@@ -332,8 +346,13 @@ if __name__ == '__main__':
     norm_adj = normalize_adj(dense_adj)
     pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
 
+    if gcn_layer != 2:
+        surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # 代理损失:gnn model
+    else:
+        surrogate = gnn_model
+
     ######################### select test nodes  #########################
-    target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
+    target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     # target_node_list = target_node_list[384:500]
 
@@ -346,11 +365,10 @@ if __name__ == '__main__':
     time_list = []
     for target_node in tqdm(target_node_list):
         cf_example, time_cost = generate_acexplainer_subgraph(df_orbit, target_node, data, pyg_data, gnn_model,
-                                                              pre_output, gcn_layer, attack_method, top_t, device, nhid,
-                                                              dropout,
-                                                              with_bias)
+                                                              surrogate, pre_output, gcn_layer, attack_method, top_t,
+                                                              device, nhid, dropout, with_bias)
         # print(cf_example)
-        print("Time for {} epochs of one example: {:.4f}s".format(200, time_cost))
+        print("Time for {} epochs of one example: {:.4f}s".format(NUM_EPOCHS_AC, time_cost))
         time_list.append(time_cost)
         cfexp_subgraph[target_node] = cf_example["subgraph"] if cf_example else None
         test_cf_examples.append({"data": cf_example, "time_cost": time_cost})

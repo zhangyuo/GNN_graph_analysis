@@ -24,7 +24,8 @@ from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
 from config.config import *
 from explainer.cf_explanation.cf_explainer import CFExplainer
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
-from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset
+from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
+    TreeCyclesDataset
 
 
 def attack_cfexplanation_subgraph_generate(target_node_list, attack_subgraph, features, labels, gnn_model,
@@ -156,6 +157,14 @@ if __name__ == '__main__':
         # Create deeprobust Data object
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'TREE-CYCLES':
+        # Create PyG Data object
+        with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
+            pyg_data = CPU_Unpickler(f).load()
+        # Create deeprobust Data object
+        data = TreeCyclesDataset(pyg_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:
         adj, features, labels = None, None, None
         idx_train, idx_val, idx_test = None, None, None
@@ -170,7 +179,7 @@ if __name__ == '__main__':
     pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
 
     ######################### select test nodes  #########################
-    target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
+    target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     # target_node_list = target_node_list[150:160]
 

@@ -30,7 +30,7 @@ from model.GCN import adj_to_edge_index
 class OrbitAttack(BaseAttack):
 
 
-    def __init__(self, model,orbit_dict,attack_type = '1518', nnodes=None, device='cpu',orbit_type = "two_Orbit_type"):
+    def __init__(self, model,orbit_dict,attack_type = '1518', nnodes=None, device='cpu',orbit_type = "two_Orbit_type", **kwargs):
         """
         Input:
             model: surrogate model
@@ -48,7 +48,8 @@ class OrbitAttack(BaseAttack):
         self.potential_edges = []
         self.best_edge_list=[]
         self.matching_index = orbit_dict.index[orbit_dict[orbit_type] == attack_type].tolist()
-
+        if len(self.matching_index) < kwargs['top_t']:
+            self.matching_index += orbit_dict.index[orbit_dict[orbit_type] == '1519'].tolist()
 
         self.cooc_constraint = None
 

@@ -26,7 +26,7 @@ from deeprobust.graph.data import Dataset
 from tqdm import tqdm
 from config.config import *
 from model.GCN import GCN_model, dr_data_to_pyg_data_mask, load_GCN_model
-from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset
+from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, TreeCyclesDataset
 from subgraph_quantify.graph_analysis import pg_explainer_generate
 
 if __name__ == '__main__':
@@ -78,6 +78,14 @@ if __name__ == '__main__':
         # Create deeprobust Data object
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'TREE-CYCLES':
+        # Create PyG Data object
+        with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
+            pyg_data = CPU_Unpickler(f).load()
+        # Create deeprobust Data object
+        data = TreeCyclesDataset(pyg_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:
         adj, features, labels = None, None, None
         idx_train, idx_val, idx_test = None, None, None
@@ -92,7 +100,7 @@ if __name__ == '__main__':
     pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
 
     ######################### select test nodes  #########################
-    target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
+    target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     # target_node_list = target_node_list[384:500]
 
@@ -119,7 +127,7 @@ if __name__ == '__main__':
         cf_example, time_cost = generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer,
                                                                  gnn_model, pre_output)
         # print(cf_example)
-        print("Time for {} epochs of one example: {:.4f}s".format(200, time_cost))
+        print("Time for one example: {:.4f}s".format(time_cost))
         time_list.append(time_cost)
         # cfexp_subgraph[target_node] = cf_example["subgraph"] if cf_example else None
         test_cf_examples.append({"data": cf_example, "time_cost": time_cost})

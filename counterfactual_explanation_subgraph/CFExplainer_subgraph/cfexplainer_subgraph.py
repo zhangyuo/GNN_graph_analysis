@@ -24,7 +24,7 @@ from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
 from config.config import *
 from explainer.cf_explanation.cf_explainer import CFExplainer
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
-from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes
+from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset
 
 
 def attack_cfexplanation_subgraph_generate(target_node_list, attack_subgraph, features, labels, gnn_model,
@@ -148,6 +148,14 @@ if __name__ == '__main__':
         data = Dataset(root=dataset_path, name=dataset_name)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'BA-SHAPES':
+        # Create PyG Data object
+        with open(dataset_path + "/BAShapes.pickle", "rb") as f:
+            pyg_data = CPU_Unpickler(f).load()
+        data = BAShapesDataset(pyg_data)
+        # Create deeprobust Data object
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:
         adj, features, labels = None, None, None
         idx_train, idx_val, idx_test = None, None, None
@@ -160,9 +168,6 @@ if __name__ == '__main__':
     dense_adj = torch.tensor(adj.toarray())
     norm_adj = normalize_adj(dense_adj)
     pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
-
-    # Create PyG Data object
-    pyg_data = dr_data_to_pyg_data(adj, features, labels)
 
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
@@ -194,12 +199,6 @@ if __name__ == '__main__':
 
     # Save CF examples in test set
     with open(
-            counterfactual_explanation_subgraph_path + "/{}_cf_examples_gcnlayer{}_lr{}_beta{}_mom{}_epochs{}_seed{}".format(
-                DATA_NAME,
-                GCN_LAYER,
-                LEARNING_RATE,
-                BETA,
-                N_Momentum,
-                NUM_EPOCHS,
-                SEED_NUM), "wb") as f:
+            counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_beta{BETA}_mom{N_Momentum}_epochs{NUM_EPOCHS}_seed{SEED_NUM}",
+            "wb") as f:
         pickle.dump(test_cf_examples, f)

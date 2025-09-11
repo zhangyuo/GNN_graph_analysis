@@ -31,6 +31,8 @@ def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer
         num_nodes=pyg_data.num_nodes
     )
 
+    sub_labels = pyg_data.y[subset]
+
     # 创建空邻接矩阵
     num_nodes = edge_index_sub.max() + 1
     sub_adj = np.zeros((num_nodes, num_nodes), dtype=np.float32)
@@ -115,6 +117,7 @@ def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer
                 "subgraph": None,
                 "true_subgraph": None,
                 "E_type": 'E-',
+                "sub_labels": sub_labels
             }
             break
     time_cost = time.time() - start_time

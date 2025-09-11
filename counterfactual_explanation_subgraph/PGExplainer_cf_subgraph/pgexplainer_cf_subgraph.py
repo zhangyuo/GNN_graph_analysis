@@ -26,7 +26,7 @@ from deeprobust.graph.data import Dataset
 from tqdm import tqdm
 from config.config import *
 from model.GCN import GCN_model, dr_data_to_pyg_data_mask, load_GCN_model
-from utilty.utils import normalize_adj, select_test_nodes
+from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset
 from subgraph_quantify.graph_analysis import pg_explainer_generate
 
 if __name__ == '__main__':
@@ -70,6 +70,14 @@ if __name__ == '__main__':
         data = Dataset(root=dataset_path, name=dataset_name)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'BA-SHAPES':
+        # Create PyG Data object
+        with open(dataset_path + "/BAShapes.pickle", "rb") as f:
+            pyg_data = CPU_Unpickler(f).load()
+        data = BAShapesDataset(pyg_data)
+        # Create deeprobust Data object
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:
         adj, features, labels = None, None, None
         idx_train, idx_val, idx_test = None, None, None
@@ -82,9 +90,6 @@ if __name__ == '__main__':
     dense_adj = torch.tensor(adj.toarray())
     norm_adj = normalize_adj(dense_adj)
     pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
-
-    # Create PyG Data object
-    pyg_data = dr_data_to_pyg_data_mask(adj, features, labels, idx_train, idx_val, idx_test)
 
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
@@ -112,7 +117,7 @@ if __name__ == '__main__':
     time_list = []
     for target_node in tqdm(target_node_list):
         cf_example, time_cost = generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer,
-                                                                  gnn_model, pre_output)
+                                                                 gnn_model, pre_output)
         # print(cf_example)
         print("Time for {} epochs of one example: {:.4f}s".format(200, time_cost))
         time_list.append(time_cost)
@@ -125,9 +130,7 @@ if __name__ == '__main__':
     #     pickle.dump(cfexp_subgraph, fw)
 
     # Save CF examples in test set
-    with open(counterfactual_explanation_subgraph_path + "/{}_cf_examples_gcnlayer{}_lr{}_seed{}".format(
-            DATA_NAME,
-            GCN_LAYER,
-            LEARNING_RATE,
-            SEED_NUM), "wb") as f:
+    with open(
+            counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_seed{SEED_NUM}",
+            "wb") as f:
         pickle.dump(test_cf_examples, f)

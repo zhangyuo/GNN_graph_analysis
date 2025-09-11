@@ -14,9 +14,10 @@ import sys
 
 from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANATION_TYPE, DATA_NAME, ATTACK_BUDGET_LIST, \
     TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α2, α3, \
-    TAU_C
+    TAU_C, BETA, N_Momentum, NUM_EPOCHS
 from model.GCN import load_GCN_model
-from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol
+from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
+    BAShapesDataset
 import numpy as np
 import os
 import pandas as pd
@@ -56,6 +57,14 @@ if dataset_name == 'cora':
     data = Dataset(root=dataset_path, name=dataset_name)
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+elif dataset_name == 'BA-SHAPES':
+    # Create PyG Data object
+    with open(dataset_path + "/BAShapes.pickle", "rb") as f:
+        pyg_data = CPU_Unpickler(f).load()
+    data = BAShapesDataset(pyg_data)
+    # Create deeprobust Data object
+    adj, features, labels = data.adj, data.features, data.labels
+    idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
 else:
     adj, features, labels = None, None, None
     idx_train, idx_val, idx_test = None, None, None
@@ -81,11 +90,11 @@ header = ["node_idx", "new_idx", "cf_adj", "sub_adj", "y_pred_orig", "y_pred_new
           "label", "num_nodes", "loss_total", "loss_pred", "loss_graph_dist", "sub_feat"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-08-CF-GNNExplainer_all_explanations'
+time_name = '2025-09-10'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
-        counterfactual_explanation_subgraph_path + "/cora_cf_examples_gcnlayer2_lr0.01_beta0.5_mom0.9_epochs500_seed102",
+        counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_beta{BETA}_mom{N_Momentum}_epochs{NUM_EPOCHS}_seed{SEED_NUM}",
         "rb") as f:
     cf_examples = pickle.load(f)
     df_prep = []
@@ -100,24 +109,43 @@ with open(
 num_edges_adj = (sum(sum(dense_adj)) / 2).item()
 L_plau = 0.0
 ps_num = 0
+motif_accuracy = 0.0
 for i in df.index:
     # plausibility
     orig_sub_adj = torch.tensor(df["sub_adj"][i])
     edited_sub_adj = torch.tensor(df["cf_adj"][i])
     L_plau += α2 * compute_deg_diff(orig_sub_adj, edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
                                                                                             edited_sub_adj, tau_c)
-    # accuracy using F_NS
-    edited_norm_adj = normalize_adj(edited_sub_adj)
-    sub_feat = df["sub_feat"][i]
-    ps_label = gnn_model.forward(sub_feat, edited_norm_adj)
-    label_pred_orig = y_pred_orig[df["node_idx"][i]].argmax()
-    ps_label_pred_new_actual = ps_label[df["new_idx"][i]].argmax()
-    if label_pred_orig == ps_label_pred_new_actual:
-        ps_num += 1
+    # accuracy using F_NS or motif
+    edge_in_motif_num = 0
+    if dataset_name in ["BA-SHAPES", "TREE-CYCLES"]:
+        perturbed_edges = df["sub_adj"][i] - df["cf_adj"][i]
+        nonzero_indices = np.nonzero(perturbed_edges)
+        perturbed_edge_list = list(zip(nonzero_indices[0], nonzero_indices[1]))
+        perturbed_edge_list = [(u, v) for u, v in perturbed_edge_list if u < v]
+        for u, v in perturbed_edge_list:
+            if df['label'][i][u] != 0 and df['label'][i][v] != 0:
+                edge_in_motif_num += 1
+        motif_accuracy += edge_in_motif_num / len(perturbed_edge_list)
+    else:
+        edited_norm_adj = normalize_adj(edited_sub_adj)
+        sub_feat = df["sub_feat"][i]
+        ps_label = gnn_model.forward(sub_feat, edited_norm_adj)
+        label_pred_orig = y_pred_orig[df["node_idx"][i]].argmax()
+        ps_label_pred_new_actual = ps_label[df["new_idx"][i]].argmax()
+        if label_pred_orig == ps_label_pred_new_actual:
+            ps_num += 1
+
+# plausibility
 L_plau = L_plau / len(df)
-ps = ps_num / len(target_node_list)
-pn = len(df) / len(target_node_list)
-F_NS = 2 * ps * pn / (ps + pn)
+
+# accuracy using F_NS or motif
+if dataset_name in ["BA-SHAPES", "TREE-CYCLES"]:
+    F_NS = motif_accuracy / len(df)
+else:
+    ps = ps_num / len(target_node_list)
+    pn = len(df) / len(target_node_list)
+    F_NS = 2 * ps * pn / (ps + pn)
 
 print("Num cf examples found: {}/{}".format(len(df), len(target_node_list)))
 print("Metric 1 - Fidelity+: {}".format(1 - len(df) / len(target_node_list)))
@@ -125,10 +153,9 @@ print("Metric 2 - Average Explanation Size: {}, std: {}".format(np.mean(df["loss
                                                                 np.std(df["loss_graph_dist"])))
 print("Metric 3 - Average Sparsity: {}, std: {}".format(np.mean(1 - df["loss_graph_dist"] / num_edges_adj),
                                                         np.std(1 - df["loss_graph_dist"] / num_edges_adj)))
-print("Metric 4 - Average Plausibility: {}".format(1-1 / (1 + np.exp(-1 * 0.05 * L_plau))))
+print("Metric 4 - Average Plausibility: {}".format(2 - 2 / (1 + np.exp(-1 * 0.05 * L_plau))))
 print("Metric 5 - Average Accuracy: {}".format(F_NS))
 print("Metric 6 - Average Time Cost: {:.4f}s/per".format(np.mean(np.array(time_list))))
-
 
 # # Add num edges
 # num_edges = []

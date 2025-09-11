@@ -58,13 +58,16 @@ if __name__ == "__main__":
         data = Dataset(root=dataset_path, name=dataset_name)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+
+        # Create PyG Data object
+        pyg_data = dr_data_to_pyg_data(adj, features, labels)
     else:
         adj, features, labels = None, None, None
         idx_train, idx_val, idx_test = None, None, None
 
     # create data results path
     time_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    time_name = datetime.now().strftime("%Y-%m-%d") + "_E-_for_cfexp"
+    # time_name = datetime.now().strftime("%Y-%m-%d") + "_E-_for_cfexp"
 
     # clean subgraph path
     clean_subgraph_path = base_path + f'/results/{time_name}/clean_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
@@ -119,9 +122,6 @@ if __name__ == "__main__":
     dense_adj = torch.tensor(adj.toarray())
     norm_adj = normalize_adj(dense_adj)
     pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
-
-    # Create PyG Data object
-    pyg_data = dr_data_to_pyg_data(adj, features, labels)
 
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)

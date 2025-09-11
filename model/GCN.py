@@ -70,7 +70,7 @@ class GCN_extend(GCN):
     def loss(self, pred, label):
         return F.nll_loss(pred, label)
 
-    def fit_extended(self, features, adj, labels, idx_train, idx_val, train_iters=500, patience=500):
+    def fit_extended(self, features, adj, labels, idx_train, idx_val, train_iters=GCN_EPOCHS, patience=500):
         """扩展训练方法（使用自定义优化器）"""
         self.train()
         optimizer = torch.optim.Adam(

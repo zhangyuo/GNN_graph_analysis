@@ -119,7 +119,7 @@ class CFExplainer:
             cf_stats = [self.node_idx, self.new_idx,
                         cf_adj.detach().numpy(), self.sub_adj.detach().numpy(),
                         self.y_pred_orig.item(), y_pred_new.item(),
-                        y_pred_new_actual.item(), self.sub_labels[self.new_idx].item(),
+                        y_pred_new_actual.item(), self.sub_labels,
                         self.sub_adj.shape[0], loss_total.item(),
                         loss_pred.item(), loss_graph_dist.item(),
                         self.sub_feat]

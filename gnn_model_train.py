@@ -9,6 +9,7 @@
 # @Desc     : target node for node classification on GNN model
 """
 import os
+import pickle
 import sys
 import warnings
 warnings.filterwarnings("ignore")
@@ -21,7 +22,7 @@ import torch
 from deeprobust.graph.data import Dataset
 from config.config import *
 from model.GCN import GCN_model, load_GCN_model
-from utilty.utils import normalize_adj, accuracy
+from utilty.utils import normalize_adj, accuracy, CPU_Unpickler, BAShapesDataset
 
 if __name__ == "__main__":
     dataset_name = DATA_NAME
@@ -38,6 +39,7 @@ if __name__ == "__main__":
 
     ######################### loading deeprobust dataset  #########################
     data = None
+    pyg_data = None
     # dataset path
     dataset_path = base_path + '/dataset'
     if not os.path.exists(dataset_path):
@@ -45,6 +47,14 @@ if __name__ == "__main__":
     # adjacency matrix is a high compressed sparse row format
     if dataset_name == 'cora':
         data = Dataset(root=dataset_path, name=dataset_name)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'BA-SHAPES':
+        # Create PyG Data object
+        with open(dataset_path + "/BAShapes.pickle", "rb") as f:
+            pyg_data = CPU_Unpickler(f).load()
+        # Create deeprobust Data object
+        data = BAShapesDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:

@@ -12,7 +12,7 @@
 TEST_MODEL = "GCN"  # ["GCN"]
 
 # dataset
-DATA_NAME = "TREE-CYCLES"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
+DATA_NAME = "cora"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
@@ -43,6 +43,14 @@ elif DATA_NAME == "BA-SHAPES":
     GCN_LAYER = 2
     GCN_EPOCHS = 20000
 elif DATA_NAME == "TREE-CYCLES":
+    HIDDEN_CHANNELS = 100
+    DROPOUT = 0
+    WITH_BIAS = True
+    WEIGHT_DECAY = 0.001
+    LEARNING_RATE = 0.001
+    GCN_LAYER = 3
+    GCN_EPOCHS = 5000
+elif DATA_NAME == "Loan-Decision":
     HIDDEN_CHANNELS = 100
     DROPOUT = 0
     WITH_BIAS = True

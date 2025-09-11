@@ -17,7 +17,7 @@ from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANAT
     TAU_C, BETA, N_Momentum, NUM_EPOCHS
 from model.GCN import load_GCN_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
-    BAShapesDataset, TreeCyclesDataset
+    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset
 import numpy as np
 import os
 import pandas as pd
@@ -71,6 +71,14 @@ elif dataset_name == 'TREE-CYCLES':
         pyg_data = CPU_Unpickler(f).load()
     # Create deeprobust Data object
     data = TreeCyclesDataset(pyg_data)
+    adj, features, labels = data.adj, data.features, data.labels
+    idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+elif dataset_name == 'Loan-Decision':
+    # Create PyG Data object
+    with open(dataset_path + "/LoanDecision.pickle", "rb") as f:
+        pyg_data = CPU_Unpickler(f).load()
+    # Create deeprobust Data object
+    data = LoanDecisionDataset(pyg_data)
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
 else:
@@ -135,6 +143,15 @@ for i in df.index:
             if df['label'][i][u] != 0 and df['label'][i][v] != 0:
                 edge_in_motif_num += 1
         motif_accuracy += edge_in_motif_num / len(perturbed_edge_list)
+    elif dataset_name == "Loan-Decision":
+        perturbed_edges = df["sub_adj"][i] - df["cf_adj"][i]
+        nonzero_indices = np.nonzero(perturbed_edges)
+        perturbed_edge_list = list(zip(nonzero_indices[0], nonzero_indices[1]))
+        perturbed_edge_list = [(u, v) for u, v in perturbed_edge_list if u < v]
+        for u, v in perturbed_edge_list:
+            if u.item() == df['new_idx'][i] or v.item() == df['new_idx'][i]:
+                edge_in_motif_num += 1
+        motif_accuracy += edge_in_motif_num / len(perturbed_edge_list)
     else:
         edited_norm_adj = normalize_adj(edited_sub_adj)
         sub_feat = df["sub_feat"][i]
@@ -148,7 +165,7 @@ for i in df.index:
 L_plau = L_plau / len(df)
 
 # accuracy using F_NS or motif
-if dataset_name in ["BA-SHAPES", "TREE-CYCLES"]:
+if dataset_name in ["BA-SHAPES", "TREE-CYCLES", "Loan-Decision"]:
     F_NS = motif_accuracy / len(df)
 else:
     ps = ps_num / len(target_node_list)

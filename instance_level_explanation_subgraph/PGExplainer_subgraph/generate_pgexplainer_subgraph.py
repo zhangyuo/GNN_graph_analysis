@@ -20,7 +20,7 @@ from utilty.explanation_visualization import explanation_subgraph_visualization
 from utilty.utils import normalize_adj
 
 
-def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer, gnn_model, pre_output):
+def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer, gnn_model, pre_output, dataset_name):
     start_time = time.time()
     # generate explanation for target node from specified explainer
     subset, edge_index_sub, mapping, _ = k_hop_subgraph(
@@ -89,8 +89,12 @@ def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer
     target_node_label = pre_output[target_node].argmax().item()
     # norm_adj = normalize_adj(sub_adj)
     # target_node_label_1 = gnn_model.forward(x_sub, norm_adj)[target_new_id].argmax().item()
+
+    max_edits = 5
+    if dataset_name in ["BA-SHAPES", "TREE-CYCLES"]:
+        max_edits = 6
     # 4. 遍历边索引，根据重要性降序分别删除对应，判断预测是否翻转
-    for edge in sorted_edge_index.T:  # 转置后每行代表一条边
+    for index, edge in enumerate(sorted_edge_index.T):  # 转置后每行代表一条边
         u, v = edge
         cf_adj[u][v] = 0
         cf_adj[v][u] = 0
@@ -119,6 +123,8 @@ def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer
                 "E_type": 'E-',
                 "sub_labels": sub_labels
             }
+            break
+        if index + 1 == max_edits:
             break
     time_cost = time.time() - start_time
     if cf_example is None:

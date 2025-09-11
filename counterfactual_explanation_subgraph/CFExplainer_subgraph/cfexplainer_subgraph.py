@@ -25,7 +25,7 @@ from config.config import *
 from explainer.cf_explanation.cf_explainer import CFExplainer
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
-    TreeCyclesDataset
+    TreeCyclesDataset, LoanDecisionDataset
 
 
 def attack_cfexplanation_subgraph_generate(target_node_list, attack_subgraph, features, labels, gnn_model,
@@ -149,6 +149,8 @@ if __name__ == '__main__':
         data = Dataset(root=dataset_path, name=dataset_name)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+        # Create PyG Data object
+        pyg_data = dr_data_to_pyg_data(adj, features, labels)
     elif dataset_name == 'BA-SHAPES':
         # Create PyG Data object
         with open(dataset_path + "/BAShapes.pickle", "rb") as f:
@@ -163,6 +165,14 @@ if __name__ == '__main__':
             pyg_data = CPU_Unpickler(f).load()
         # Create deeprobust Data object
         data = TreeCyclesDataset(pyg_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'Loan-Decision':
+        # Create PyG Data object
+        with open(dataset_path + "/LoanDecision.pickle", "rb") as f:
+            pyg_data = CPU_Unpickler(f).load()
+        # Create deeprobust Data object
+        data = LoanDecisionDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:

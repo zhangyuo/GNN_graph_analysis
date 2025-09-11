@@ -314,6 +314,38 @@ class TreeCyclesDataset(Dataset):
         return np.random.choice(valid_nodes, size=int(ratio * self.num_nodes), replace=False)
 
 
+class LoanDecisionDataset(Dataset):
+    def __init__(self, pyg_data):
+        self.name = 'Loan-Decision'
+        self.num_nodes = pyg_data.num_nodes
+        self.num_features = pyg_data.num_node_features
+
+        # 提取关键数据组件
+        self.adj = self.edge_index_to_adj(pyg_data.edge_index)
+        self.features = efficient_tensor_to_csr(pyg_data.x)
+        self.labels = pyg_data.y.numpy()
+
+        # 创建训练/验证/测试掩码
+        self.idx_train = self._create_mask(0.2)
+        self.idx_val = self._create_mask(0.1, exclude=self.idx_train)
+        self.idx_test = self._create_mask(0.7, exclude=np.concatenate([self.idx_train, self.idx_val]))
+
+    def edge_index_to_adj(self, edge_index):
+        """将 PyG 的 edge_index 转换为邻接矩阵"""
+        import scipy.sparse as sp
+        row, col = edge_index
+        adj = sp.coo_matrix((np.ones(row.shape[0], dtype=np.float32), (row, col)),
+                            shape=(self.num_nodes, self.num_nodes))
+        return adj.tocsr()
+
+    def _create_mask(self, ratio, exclude=None):
+        """创建数据分割掩码"""
+        valid_nodes = np.arange(self.num_nodes)
+        if exclude is not None:
+            valid_nodes = np.setdiff1d(valid_nodes, exclude)
+        return np.random.choice(valid_nodes, size=int(ratio * self.num_nodes), replace=False)
+
+
 def efficient_tensor_to_csr(features):
     # 获取Tensor数据
     features_np = features.detach().cpu().numpy()

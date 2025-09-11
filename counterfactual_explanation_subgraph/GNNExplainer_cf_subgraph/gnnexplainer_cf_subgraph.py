@@ -23,7 +23,8 @@ from deeprobust.graph.data import Dataset
 from tqdm import tqdm
 from config.config import *
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
-from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, TreeCyclesDataset
+from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, \
+    LoanDecisionDataset
 from instance_level_explanation_subgraph.GNNExplainer_subgraph.generate_gnnexplainer_subgraph import \
     generate_gnnexplainer_cf_subgraph
 from subgraph_quantify.graph_analysis import gnn_explainer_generate
@@ -69,6 +70,8 @@ if __name__ == '__main__':
         data = Dataset(root=dataset_path, name=dataset_name)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+        # Create PyG Data object
+        pyg_data = dr_data_to_pyg_data(adj, features, labels)
     elif dataset_name == 'BA-SHAPES':
         # Create PyG Data object
         with open(dataset_path + "/BAShapes.pickle", "rb") as f:
@@ -83,6 +86,14 @@ if __name__ == '__main__':
             pyg_data = CPU_Unpickler(f).load()
         # Create deeprobust Data object
         data = TreeCyclesDataset(pyg_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'Loan-Decision':
+        # Create PyG Data object
+        with open(dataset_path + "/LoanDecision.pickle", "rb") as f:
+            pyg_data = CPU_Unpickler(f).load()
+        # Create deeprobust Data object
+        data = LoanDecisionDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:
@@ -114,7 +125,7 @@ if __name__ == '__main__':
     time_list = []
     for target_node in tqdm(target_node_list):
         cf_example, time_cost = generate_gnnexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer,
-                                                                  gnn_model, pre_output)
+                                                                  gnn_model, pre_output, dataset_name)
         # print(cf_example)
         print("Time for one example: {:.4f}s".format(time_cost))
         time_list.append(time_cost)

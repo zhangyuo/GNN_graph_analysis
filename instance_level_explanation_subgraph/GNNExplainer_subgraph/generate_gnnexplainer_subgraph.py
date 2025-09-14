@@ -168,28 +168,37 @@ def generate_gnnexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explaine
         if new_idx_label != target_node_label:
             print("find counterfactual explanation")
             cf_example = {
+                "success": True,
                 "target_node": target_node,
                 "new_idx": target_new_id,
-                "added_edges": None,
+                "added_edges": [],
                 "removed_edges": removed_edges,
                 "explanation_size": explanation_size,
-                "plau_loss": None,
                 "original_pred": target_node_label,
                 "new_pred": new_idx_label,
-                "extended_nodes": subset,
                 "extended_adj": sub_adj,
                 "cf_adj": cf_adj,
                 "extended_feat": x_sub,
-                "subgraph": None,
-                "true_subgraph": None,
-                "E_type": 'E-',
                 "sub_labels": sub_labels
             }
             break
         if index + 1 == max_edits:
+            print("Don't find counterfactual explanation")
+            cf_example = {
+                "success": False,
+                "target_node": target_node,
+                "new_idx": target_new_id,
+                "added_edges": [],
+                "removed_edges": removed_edges,
+                "explanation_size": explanation_size,
+                "original_pred": target_node_label,
+                "new_pred": new_idx_label,
+                "extended_adj": sub_adj,
+                "cf_adj": cf_adj,
+                "extended_feat": x_sub,
+                "sub_labels": sub_labels
+            }
             break
     time_cost = time.time() - start_time
-    if cf_example is None:
-        print("Don't find counterfactual explanation")
 
     return cf_example, time_cost

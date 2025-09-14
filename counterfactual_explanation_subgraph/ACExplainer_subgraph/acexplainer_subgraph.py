@@ -140,10 +140,6 @@ def generate_acexplainer_subgraph(df_orbit,
 
     time_cost = time.time() - start
 
-    if result is None:
-        print({"error": "No valid counterfactual found"})
-        return None, time_cost
-
     # 9. 映射回原始图索引
     added_edges = []
     removed_edges = []
@@ -161,25 +157,37 @@ def generate_acexplainer_subgraph(df_orbit,
                 removed_edges.append((orig_i, orig_j))
 
     # 10. generate subgraph
-    modified_sub_adj = result["cf_adj"].detach().numpy()
-    changed_label = result["new_pred"].item()
+    subgraph = {
+        "subgraph": None,
+        "true_subgraph": None,
+        "E_type": None,
+    }
     sub_labels = data.labels[extended_nodes]
-    subgraph, true_subgraph, E_type = visualize_cfexp_subgraph(
-        modified_sub_adj,
-        extended_adj.detach().numpy(),
-        data.labels,
-        sub_labels,
-        extended_feat.numpy(),
-        changed_label,
-        target_node_idx,
-        cfexp_name='ACExplanation',
-        title="Visualization for counterfactual explanation subgraph",
-        pic_path=counterfactual_explanation_subgraph_path,
-        full_mapping=node_dict
-    )
-    print("Visualize ok for counterfactual explanation subgraph")
+    if result['success']:
+        modified_sub_adj = result["cf_adj"].detach().numpy()
+        changed_label = result["new_pred"].item()
+        subgraph, true_subgraph, E_type = visualize_cfexp_subgraph(
+            modified_sub_adj,
+            extended_adj.detach().numpy(),
+            data.labels,
+            sub_labels,
+            extended_feat.numpy(),
+            changed_label,
+            target_node_idx,
+            cfexp_name='ACExplanation',
+            title="Visualization for counterfactual explanation subgraph",
+            pic_path=counterfactual_explanation_subgraph_path,
+            full_mapping=node_dict
+        )
+        print("Visualize ok for counterfactual explanation subgraph")
+        subgraph = {
+            "subgraph": subgraph,
+            "true_subgraph": true_subgraph,
+            "E_type": E_type,
+        }
 
     return {
+        "success": result['success'],
         "target_node": target_node,
         "new_idx": target_node_idx,
         "added_edges": added_edges,
@@ -188,15 +196,11 @@ def generate_acexplainer_subgraph(df_orbit,
         "plau_loss": result["plau_loss"],
         "original_pred": result["original_pred"],
         "new_pred": result["new_pred"],
-        "extended_nodes": extended_nodes,
         "extended_adj": extended_adj,
         "cf_adj": result["cf_adj"],
         "extended_feat": extended_feat,
-        "subgraph": subgraph,
-        "true_subgraph": true_subgraph,
-        "E_type": E_type,
         "sub_labels": sub_labels
-    }, time_cost
+    }, time_cost, subgraph
 
 
 def get_attack_nodes(attack_model, df_orbit, target_node, data, pyg_data, method="GOttack", top_t=10):
@@ -368,7 +372,7 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    # target_node_list = target_node_list[384:500]
+    # target_node_list = target_node_list[100:110]
 
     ######################### GNN explainer generate  #########################
     df_orbit = OrbitTableGenerator(dataset_name).generate_orbit_table()
@@ -378,13 +382,13 @@ if __name__ == '__main__':
     cfexp_subgraph = {}
     time_list = []
     for target_node in tqdm(target_node_list):
-        cf_example, time_cost = generate_acexplainer_subgraph(df_orbit, target_node, data, pyg_data, gnn_model,
+        cf_example, time_cost, subgraph = generate_acexplainer_subgraph(df_orbit, target_node, data, pyg_data, gnn_model,
                                                               surrogate, pre_output, gcn_layer, attack_method, top_t,
                                                               device, nhid, dropout, with_bias)
         # print(cf_example)
         print("Time for {} epochs of one example: {:.4f}s".format(NUM_EPOCHS_AC, time_cost))
         time_list.append(time_cost)
-        cfexp_subgraph[target_node] = cf_example["subgraph"] if cf_example else None
+        cfexp_subgraph[target_node] = subgraph if cf_example['success'] else None
         test_cf_examples.append({"data": cf_example, "time_cost": time_cost})
     print("Total time elapsed: {:.4f}min".format((time.time() - start_0) / 60))
     print("Number of CF examples found: {}/{}".format(len(test_cf_examples), len(target_node_list)))

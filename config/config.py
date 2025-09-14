@@ -12,7 +12,7 @@
 TEST_MODEL = "GCN"  # ["GCN"]
 
 # dataset
-DATA_NAME = "ogbn-arxiv"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
+DATA_NAME = "cora"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
@@ -93,9 +93,10 @@ LAMBDA_PLAU = 0.5  # 现实惩罚项权重
 MAX_EDITS = 5  # 最大扰动预算
 TAU_PLUS = 0.5  # 加边阈值
 TAU_MINUS = -0.5  # 减边阈值
-α1 = 10  # 特征相似惩罚项权重-针对加边
-α2 = 1  # 度变化惩罚项权重
-α3 = 10  # 聚类系数变化惩罚项权重，保持同等量级
+α1 = 1  # 特征相似惩罚项权重-针对加边
+α2 = 0  # 度变化惩罚项权重 1
+α3 = 1  # 聚类系数变化惩罚项权重 0.5
 α4 = 20  # 领域知识破坏惩罚项权重-针对加边
-TAU_C = 0.1  # 聚类系数变化容忍度阈值
+TAU_C = 0.3  # 聚类系数变化容忍度阈值
+k = 5
 ####################################################################

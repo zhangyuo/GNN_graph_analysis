@@ -13,18 +13,21 @@ from __future__ import print_function
 import sys
 
 from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANATION_TYPE, DATA_NAME, ATTACK_BUDGET_LIST, \
-    TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α2, α3, \
-    TAU_C, LEARNING_RATE_AC, NUM_EPOCHS, NUM_EPOCHS_AC
-from model.GCN import load_GCN_model
+    TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α1, α2, \
+    α3, \
+    TAU_C, LEARNING_RATE_AC, NUM_EPOCHS, NUM_EPOCHS_AC, k
+from model.GCN import load_GCN_model, dr_data_to_pyg_data
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
-    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset
+    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, compute_feat_sim
 import numpy as np
 import os
 import pandas as pd
 import pickle
 import torch
+import warnings
 from deeprobust.graph.data import Dataset
 
+warnings.filterwarnings("ignore")
 res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(res)
 sys.path.insert(0, base_path)
@@ -57,6 +60,8 @@ if dataset_name == 'cora':
     data = Dataset(root=dataset_path, name=dataset_name)
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    # Create PyG Data object
+    pyg_data = dr_data_to_pyg_data(adj, features, labels)
 elif dataset_name == 'BA-SHAPES':
     # Create PyG Data object
     with open(dataset_path + "/BAShapes.pickle", "rb") as f:
@@ -102,12 +107,11 @@ target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_typ
 target_node_list += target_node_list1
 
 ######################### Load CF examples  #########################
-header = ['target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'plau_loss', 'original_pred',
-          'new_pred', 'extended_nodes', 'extended_adj', 'cf_adj', 'extended_feat', 'subgraph', 'true_subgraph',
-          'E_type', "sub_labels"]
+header = ['success', 'target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'plau_loss',
+          'original_pred', 'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', 'sub_labels']
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-11'
+time_name = '2025-09-14'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
@@ -123,112 +127,59 @@ with open(
     df = pd.DataFrame(df_prep, columns=df_prep[0].keys())
 
 ######################### Metrics Evaluation  #########################
-num_edges_adj = (sum(sum(dense_adj)) / 2).item()
-L_plau = 0.0
-ps_num = 0
-motif_accuracy = 0.0
+misclas_num = 0
+fidelity = 0.0
+added_edges_num = 0.0
+deleted_edges_num = 0.0
+edited_num = 0.0
+S_plau = 0.0
 for i in df.index:
-    # plausibility
     orig_sub_adj = torch.tensor(df["extended_adj"][i])
     edited_sub_adj = torch.tensor(df["cf_adj"][i])
-    # print(df["plau_loss"][i])
-    # print(L_plau)
-    try:
-        L_plau += df["plau_loss"][i]
-    except:
-        L_plau += df["plau_loss"][i].item()
+    sub_feat = df["extended_feat"][i]
+    edited_norm_adj = normalize_adj(edited_sub_adj)
+    new_label = gnn_model.forward(sub_feat, edited_norm_adj)
 
-    # accuracy using F_NS or motif
-    edge_in_motif_num = 0
-    if dataset_name in ["BA-SHAPES", "TREE-CYCLES"]:
-        perturbed_edges = df["extended_adj"][i] - df["cf_adj"][i]
-        nonzero_indices = np.nonzero(perturbed_edges)
-        perturbed_edge_list = list(zip(nonzero_indices[0], nonzero_indices[1]))
-        perturbed_edge_list = [(u, v) for u, v in perturbed_edge_list if u < v]
-        for u, v in perturbed_edge_list:
-            if df['sub_labels'][i][u] != 0 and df['sub_labels'][i][v] != 0:
-                edge_in_motif_num += 1
-        motif_accuracy += edge_in_motif_num / len(perturbed_edge_list)
-    elif dataset_name == "Loan-Decision":
-        perturbed_edges = df["extended_adj"][i] - df["cf_adj"][i]
-        nonzero_indices = np.nonzero(perturbed_edges)
-        perturbed_edge_list = list(zip(nonzero_indices[0], nonzero_indices[1]))
-        perturbed_edge_list = [(u, v) for u, v in perturbed_edge_list if u < v]
-        for u, v in perturbed_edge_list:
-            if u.item() == df['new_idx'][i] or v.item() == df['new_idx'][i]:
-                edge_in_motif_num += 1
-        motif_accuracy += (edge_in_motif_num - len(df['added_edges'][i])) / len(perturbed_edge_list)
-    else:
-        edited_norm_adj = normalize_adj(edited_sub_adj)
-        sub_feat = df["extended_feat"][i]
-        ps_label = gnn_model.forward(sub_feat, edited_norm_adj)
-        label_pred_orig = y_pred_orig[df["target_node"][i]].argmax()
-        ps_label_pred_new_actual = ps_label[df["new_idx"][i]].argmax()
-        if label_pred_orig == ps_label_pred_new_actual:
-            ps_num += 1
+    # misclassification
+    if df["success"][i]:
+        misclas_num += 1
 
-# plausibility
-L_plau = L_plau.item() / len(df)
+    # fidelity
+    prob_pred_orig = torch.exp(y_pred_orig[df["target_node"][i]])
+    label_pred_orig = y_pred_orig[df["target_node"][i]].argmax().item()
+    prob_new_actual = torch.exp(new_label[df["new_idx"][i]])
+    fidelity += prob_pred_orig[label_pred_orig] - prob_new_actual[label_pred_orig]
 
-# accuracy using F_NS or motif
-if dataset_name in ["BA-SHAPES", "TREE-CYCLES", "Loan-Decision"]:
-    F_NS = motif_accuracy / len(df)
-else:
-    ps = ps_num / len(target_node_list)
-    pn = len(df) / len(target_node_list)
-    F_NS = 2 * ps * pn / (ps + pn)
+    # explanation size
+    if df["success"][i]:
+        added_edges_num += len(df["added_edges"][i])
+        deleted_edges_num += len(df["removed_edges"][i])
+        edited_num += df["explanation_size"][i]
 
-print("Num cf examples found: {}/{}".format(len(df), len(target_node_list)))
-print("Metric 1 - Fidelity+: {}".format(1 - len(df) / len(target_node_list)))
-print("Metric 2 - Average Explanation Size: {}, std: {}".format(np.mean(df["explanation_size"]),
-                                                                np.std(df["explanation_size"])))
-print("Metric 3 - Average Sparsity: {}, std: {}".format(np.mean(1 - df["explanation_size"] / num_edges_adj),
-                                                        np.std(1 - df["explanation_size"] / num_edges_adj)))
-print("Metric 4 - Average Plausibility: {}".format(2 - 2 / (1 + np.exp(-1 * 0.05 * L_plau))))
-print("Metric 5 - Average Accuracy: {}".format(F_NS))
-print("Metric 6 - Average Time Cost: {:.4f}s/per".format(np.mean(np.array(time_list))))
+    # plausibility
+    tt = 0.0
+    if df["success"][i]:
+        # features = pyg_data.x
+        # for u,v in df["added_edges"][i]:
+        #     tt += compute_feat_sim(features[u], features[v])
+        # for u,v in df["removed_edges"][i]:
+        #     tt += compute_feat_sim(features[u], features[v])
+        # tt = tt / df["explanation_size"][i]
+        L_plau = α2 * compute_deg_diff(orig_sub_adj,
+                                       edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
+                                                                                                   edited_sub_adj,
+                                                                                                   tau_c)
+        S_plau += 2 * (1 - 1 / (1 + torch.exp(-1 * k * L_plau)))
+        # print(S_plau)
 
-# # Add num edges
-# num_edges = []
-# for i in df.index:
-#     num_edges.append(sum(sum(df["sub_adj"][i])) / 2)
-# df["num_edges"] = num_edges
-#
-# # For accuracy, only look at motif nodes
-# df_motif = df[df["y_pred_orig"] != 0].reset_index(drop=True)
-# accuracy = []
-# # Get original predictions
-# dict_ypred_orig = dict(zip(sorted(np.concatenate((idx_train.numpy(), idx_test.numpy()))), y_pred_orig.numpy()))
-# for i in range(len(df_motif)):
-#     node_idx = df_motif["node_idx"][i]
-#     new_idx = df_motif["new_idx"][i]
-#     _, _, _, node_dict = get_neighbourhood(int(node_idx), edge_index, 4, features, labels)
-#
-#     # Confirm idx mapping is correct
-#     if node_dict[node_idx] == df_motif["new_idx"][i]:
-#
-#         cf_adj = df_motif["cf_adj"][i]
-#         sub_adj = df_motif["sub_adj"][i]
-#         perturb = np.abs(cf_adj - sub_adj)
-#         perturb_edges = np.nonzero(perturb)  # Edge indices
-#
-#         nodes_involved = np.unique(np.concatenate((perturb_edges[0], perturb_edges[1]), axis=0))
-#         perturb_nodes = nodes_involved[nodes_involved != new_idx]  # Remove original node
-#
-#         # Retrieve original node idxs for original predictions
-#         perturb_nodes_orig_idx = []
-#         for j in perturb_nodes:
-#             perturb_nodes_orig_idx.append([key for (key, value) in node_dict.items() if value == j])
-#         perturb_nodes_orig_idx = np.array(perturb_nodes_orig_idx).flatten()
-#
-#         # Retrieve original predictions
-#         perturb_nodes_orig_ypred = np.array([dict_ypred_orig[k] for k in perturb_nodes_orig_idx])
-#         nodes_in_motif = perturb_nodes_orig_ypred[perturb_nodes_orig_ypred != 0]
-#         prop_correct = len(nodes_in_motif) / len(perturb_nodes_orig_idx)
-#
-#         accuracy.append([node_idx, new_idx, perturb_nodes_orig_idx,
-#                          perturb_nodes_orig_ypred, nodes_in_motif, prop_correct])
-#
-# df_accuracy = pd.DataFrame(accuracy, columns=["node_idx", "new_idx", "perturb_nodes_orig_idx",
-#                                               "perturb_nodes_orig_ypred", "nodes_in_motif", "prop_correct"])
-# print("Accuracy", np.mean(df_accuracy["prop_correct"]), np.std(df_accuracy["prop_correct"]))
+print("Num of target nodes: ", len(target_node_list))
+print("Num of misclassification: ", misclas_num)
+print("Num of cf examples found: {}/{}".format(misclas_num, len(df)))
+print("Metric 1 - Misclassification Rate: {:.2f}".format(misclas_num / len(target_node_list)))
+print("Metric 2 - Fidelity: {:.4f}".format(fidelity / len(target_node_list)))
+print("Metric 3 - Average Explanation Size: {:.2f}, E+: {:.2f}, E-: {:.2f}".format(edited_num / misclas_num,
+                                                                                   added_edges_num / misclas_num,
+                                                                                   deleted_edges_num / misclas_num))
+print(S_plau)
+print("Metric 4 - Average Plausibility: {:.4f}".format(S_plau / misclas_num))
+print("Metric 5 - Average Time Cost: {:.2f}s/per".format(np.mean(np.array(time_list))))

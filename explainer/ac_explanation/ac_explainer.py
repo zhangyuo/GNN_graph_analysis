@@ -140,7 +140,13 @@ class ACExplainer:
         best_delta_A = None
         best_pred = None
         best_cf_adj = None
+        best_plau_loss = None
         no_improve = 0
+        best_loss_1 = float('inf')
+        best_delta_A_1 = None
+        best_pred_1 = None
+        best_cf_adj_1 = None
+        best_plau_loss_1 = None
 
         self.cf_model.eval()  # 反事实模型g训练阶段采用评估模式，冻结dropout和batchnorm
 
@@ -184,9 +190,16 @@ class ACExplainer:
                 best_delta_A = delta_A.detach().clone()
                 best_pred = y_pred_new_actual
                 best_cf_adj = cf_adj
+                best_plau_loss = plau_loss
                 no_improve = 0
             elif y_pred_new_actual != self.y_pred_orig:
                 no_improve += 1
+            elif y_pred_new_actual == self.y_pred_orig and total_loss.item() < best_loss_1:
+                best_loss_1 = total_loss.item()
+                best_delta_A_1 = delta_A.detach().clone()
+                best_pred_1 = y_pred_new_actual
+                best_cf_adj_1 = cf_adj
+                best_plau_loss_1 = plau_loss
 
             if no_improve > 20:  # 提前停止
                 break
@@ -202,7 +215,8 @@ class ACExplainer:
 
             # 后剪枝
             pruned_delta_A = self.minimality_pruning(best_delta_A, perturb_layer, full_mask)
-            return {
+            final_result = {
+                "success": True,
                 "delta_A": pruned_delta_A,  # 使用剪枝后的扰动
                 "cf_adj": perturb_layer.build_perturbed_adj(
                     self.extended_sub_adj,
@@ -210,10 +224,19 @@ class ACExplainer:
                 ),
                 "original_pred": self.y_pred_orig,
                 "new_pred": self._validate_pruning(pruned_delta_A, perturb_layer),  # 验证预测
-                "plau_loss": plau_loss
+                "plau_loss": best_plau_loss
+            }
+        else:
+            final_result = {
+                "success": False,
+                "delta_A": best_delta_A_1,
+                "cf_adj": best_cf_adj_1,
+                "original_pred": self.y_pred_orig,
+                "new_pred": best_pred_1,  # 验证预测
+                "plau_loss": best_plau_loss_1
             }
 
-        return None
+        return final_result
 
     def minimality_pruning(self, delta_A: torch.Tensor, perturb_layer, full_mask) -> torch.Tensor:
         current_delta = delta_A.clone()

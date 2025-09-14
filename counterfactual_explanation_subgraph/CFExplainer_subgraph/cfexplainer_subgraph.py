@@ -87,10 +87,14 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
     time_cost = time.time() - start
 
     # graph visualization
-    subgraph = None
-    if cf_example != []:
-        modified_sub_adj = cf_example[0][2]
-        changed_label = cf_example[0][6]
+    subgraph = {
+        "subgraph": None,
+        "true_subgraph": None,
+        "E_type": None,
+    }
+    if cf_example[-1]:
+        modified_sub_adj = cf_example[2]
+        changed_label = cf_example[5]
         subgraph, true_subgraph, E_type = visualize_cfexp_subgraph(
             modified_sub_adj,
             sub_adj.detach().numpy(),
@@ -105,6 +109,11 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
             full_mapping=node_dict
         )
         print("Visualize ok for counterfactual explanation subgraph")
+        subgraph = {
+            "subgraph": subgraph,
+            "true_subgraph": true_subgraph,
+            "E_type": E_type,
+        }
     return subgraph, cf_example, time_cost
 
 
@@ -191,7 +200,7 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    # target_node_list = target_node_list[150:160]
+    # target_node_list = target_node_list[100:110]
 
     ######################### GNN explainer generate  #########################
     # Get CF examples in test set

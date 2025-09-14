@@ -15,7 +15,7 @@ import networkx as nx
 from deeprobust.graph.defense import GraphConvolution
 import numpy as np
 
-from utilty.utils import normalize_adj, get_degree_matrix, compute_deg_diff, compute_motif_viol
+from utilty.utils import normalize_adj, get_degree_matrix, compute_deg_diff, compute_motif_viol, compute_feat_sim
 
 
 class SignedMaskPerturbation(nn.Module):
@@ -357,28 +357,25 @@ class GNNPerturb(nn.Module):
         loss_components_4 = torch.tensor(0.0)
 
         # 1. 特征相似度惩罚 (仅对添加边)
-        add_mask = (self.delta_A > 0.5)
-        if add_mask.sum() > 0:
-            # 计算特征相似度
-            target_feat = self.sub_feat[self.node_idx]
-
-            for i in range(self.extended_sub_adj.size(0)):
-                if add_mask[self.node_idx, i]:
-                    feat_sim = F.cosine_similarity(
-                        target_feat.unsqueeze(0),
-                        self.sub_feat[i].unsqueeze(0)
-                    )
-                    loss_components_1 = loss_components_1 + (1 - feat_sim) * self.α1
-            loss_components_1 = loss_components_1 / add_mask.sum()
+        # add_mask = (self.delta_A > 0.5)
+        # if add_mask.sum() > 0:
+        #     # 计算特征相似度
+        #     target_feat = self.sub_feat[self.node_idx]
+        #     for i in range(self.extended_sub_adj.size(0)):
+        #         if add_mask[self.node_idx, i]:
+        #             feat_sim = compute_feat_sim(target_feat, self.sub_feat[i])
+        #             loss_components_1 = loss_components_1 + (1 - feat_sim) * self.α1
+        #     loss_components_1 = loss_components_1 / add_mask.sum()
 
         # 2. 度分布惩罚
         orig_sub_adj= self.extended_sub_adj
         edited_sub_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
-        deg_diff = compute_deg_diff(orig_sub_adj, edited_sub_adj)
+        deg_diff = compute_deg_diff(orig_sub_adj[self.node_idx], edited_sub_adj[self.node_idx])
         loss_components_2 = deg_diff * self.α2
 
         # 3. penalty of clustering coefficients drastic changes
-        motif_violation = compute_motif_viol(orig_sub_adj, edited_sub_adj, self.tau_c)
+        node_idx = self.node_idx
+        motif_violation = compute_motif_viol(orig_sub_adj, edited_sub_adj, self.tau_c, node_idx)
 
         # nodes = list(orig_sub_g.nodes())
         # n = len(nodes)
@@ -398,22 +395,24 @@ class GNNPerturb(nn.Module):
         loss_components_3 = motif_violation * self.α3
 
         # 4. domain-specific constraint
-        publish_year = None
-        violation_count = 0
-        if add_mask.sum() > 0 and publish_year:
-            target_year = publish_year[self.node_idx]
-            for i in range(self.extended_sub_adj.size(0)):
-                if add_mask[self.node_idx, i]:
-                    year_i = publish_year[i]
-                    # 如果节点i的年份早于目标节点，但存在从i到j的边，则违反规则
-                    if (year_i < target_year) and self.extended_sub_adj[i, self.node_idx]:
-                        violation_count += 1
-                    # 同样检查相反情况
-                    elif (target_year < year_i) and self.extended_sub_adj[self.node_idx, i]:
-                        violation_count += 1
-            sem_cost = violation_count / add_mask.sum()
-            loss_components_4 = loss_components_4 + torch.tensor(sem_cost, dtype=float) * self.α4
+        # publish_year = None
+        # violation_count = 0
+        # if add_mask.sum() > 0 and publish_year:
+        #     target_year = publish_year[self.node_idx]
+        #     for i in range(self.extended_sub_adj.size(0)):
+        #         if add_mask[self.node_idx, i]:
+        #             year_i = publish_year[i]
+        #             # 如果节点i的年份早于目标节点，但存在从i到j的边，则违反规则
+        #             if (year_i < target_year) and self.extended_sub_adj[i, self.node_idx]:
+        #                 violation_count += 1
+        #             # 同样检查相反情况
+        #             elif (target_year < year_i) and self.extended_sub_adj[self.node_idx, i]:
+        #                 violation_count += 1
+        #     sem_cost = violation_count / add_mask.sum()
+        #     loss_components_4 = loss_components_4 + torch.tensor(sem_cost, dtype=float) * self.α4
 
-        loss_components = loss_components_1 + loss_components_2 + loss_components_3 + loss_components_4
+        # loss_components = loss_components_1 + loss_components_2 + loss_components_3 + loss_components_4
+
+        loss_components = loss_components_2 + loss_components_3
 
         return loss_components

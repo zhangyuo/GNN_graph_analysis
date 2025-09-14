@@ -112,7 +112,7 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    # target_node_list = target_node_list[384:500]
+    # target_node_list = target_node_list[100:110]
 
     ######################### GNN explainer generate  #########################
     explainer = gnn_explainer_generate(gnn_model, device, features, labels, gcn_layer)

@@ -67,18 +67,28 @@ class CFExplainer:
         elif cf_optimizer == "Adadelta":
             self.cf_optimizer = optim.Adadelta(self.cf_model.parameters(), lr=lr)
 
-        best_cf_example = []
+        best_cf_example = None
         best_loss = np.inf
         num_cf_examples = 0
+        best_cf_example_1 = None
+        best_loss_1 = np.inf
         for epoch in tqdm(range(num_epochs)):
             new_example, loss_total = self.train(epoch)
-            if new_example != [] and loss_total < best_loss:
-                best_cf_example.append(new_example)
+            if new_example[-1] and loss_total < best_loss:
+                # success
+                best_cf_example = new_example
                 best_loss = loss_total
                 num_cf_examples += 1
+            elif not new_example[-1] and loss_total < best_loss_1:
+                # failed
+                best_cf_example_1 = new_example
+                best_loss_1 = loss_total
         print("{} CF examples for node_idx = {}".format(num_cf_examples, self.node_idx))
         print(" ")
-        return (best_cf_example)
+        if num_cf_examples > 0:
+            return best_cf_example
+        else:
+            return best_cf_example_1
 
     def train(self, epoch):
         t = time.time()
@@ -112,16 +122,31 @@ class CFExplainer:
               'orig pred: {}, new pred: {}, new pred nondiff: {}'.format(self.y_pred_orig, y_pred_new,
                                                                          y_pred_new_actual))
         print(" ")
-        cf_stats = []
         if y_pred_new_actual != self.y_pred_orig:
             # header = ["node_idx", "new_idx", "cf_adj", "sub_adj", "y_pred_orig", "y_pred_new", "y_pred_new_actual",
             #             "label", "num_nodes", "loss_total", "loss_pred", "loss_graph_dist"]
-            cf_stats = [self.node_idx, self.new_idx,
-                        cf_adj.detach().numpy(), self.sub_adj.detach().numpy(),
-                        self.y_pred_orig.item(), y_pred_new.item(),
-                        y_pred_new_actual.item(), self.sub_labels,
-                        self.sub_adj.shape[0], loss_total.item(),
-                        loss_pred.item(), loss_graph_dist.item(),
-                        self.sub_feat]
+            success = True
+            cf_stats = [self.node_idx,
+                        self.new_idx,
+                        cf_adj.detach().numpy(),
+                        self.sub_adj.detach().numpy(),
+                        self.y_pred_orig.item(),
+                        y_pred_new_actual.item(),
+                        self.sub_labels,
+                        loss_graph_dist.item(),
+                        self.sub_feat,
+                        success]
+        else:
+            success = False
+            cf_stats = [self.node_idx,
+                        self.new_idx,
+                        cf_adj.detach().numpy(),
+                        self.sub_adj.detach().numpy(),
+                        self.y_pred_orig.item(),
+                        y_pred_new_actual.item(),
+                        self.sub_labels,
+                        loss_graph_dist.item(),
+                        self.sub_feat,
+                        success]
 
         return (cf_stats, loss_total.item())

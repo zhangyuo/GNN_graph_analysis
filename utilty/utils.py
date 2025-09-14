@@ -11,6 +11,7 @@ from deeprobust.graph.utils import classification_margin
 from deeprobust.graph.data import Dataset
 import scipy.sparse as sp
 from torch_geometric.utils import to_undirected
+import torch.nn.functional as F
 
 
 def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
@@ -200,12 +201,20 @@ def accuracy(pred, labels):
 
 
 def compute_deg_diff(orig_sub_adj, edited_sub_adj):
-    orig_degrees = torch.sum(orig_sub_adj, dim=1)
-    new_degrees = torch.sum(edited_sub_adj, dim=1)
+    orig_degrees = torch.sum(orig_sub_adj)
+    new_degrees = torch.sum(edited_sub_adj)
     deg_diff = torch.sum(
         torch.abs(new_degrees - orig_degrees) / (1 + orig_degrees)
     )
     return deg_diff
+
+
+def compute_feat_sim(target_node_feat, edited_node_feat):
+    feat_sim = F.cosine_similarity(
+        target_node_feat.unsqueeze(0),
+        edited_node_feat.unsqueeze(0)
+    )
+    return feat_sim
 
 
 def compute_motif_viol(orig_sub_adj, edited_sub_adj, tau_c):

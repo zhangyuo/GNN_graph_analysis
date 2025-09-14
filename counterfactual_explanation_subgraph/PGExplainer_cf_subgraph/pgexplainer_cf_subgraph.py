@@ -72,7 +72,7 @@ if __name__ == '__main__':
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
         # Create PyG Data object
-        pyg_data = dr_data_to_pyg_data(adj, features, labels)
+        pyg_data = dr_data_to_pyg_data_mask(adj, features, labels, idx_train, idx_val, idx_test)
     elif dataset_name == 'BA-SHAPES':
         # Create PyG Data object
         with open(dataset_path + "/BAShapes.pickle", "rb") as f:
@@ -113,7 +113,7 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    # target_node_list = target_node_list[384:500]
+    # target_node_list = target_node_list[100:110]
 
     ######################### GNN explainer generate  #########################
     # explainer = pg_explainer_generate(gnn_model, device, features, labels, gcn_layer, pyg_data)

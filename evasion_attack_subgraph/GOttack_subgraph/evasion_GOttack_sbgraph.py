@@ -1,39 +1,44 @@
 #!/usr/bin/env python
 # coding:utf-8
 """
-# @Time     : 2025/9/9 21:29
+# @Time     : 2025/6/19 11:38
 # @Author   : Yu Zhang
 # @Email    : yuzhang@cs.aau.dk
-# @File     : gnnexplainer_cf_subgraph.py
+# @File     : evasion_GOttack.py
 # @Software : PyCharm
 # @Desc     :
 """
 import os
 import pickle
+import random
 import sys
-import warnings
-
-warnings.filterwarnings("ignore")
+res = os.path.abspath(__file__)  # acquire absolute path of current file
+base_path = os.path.dirname(
+    os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
+sys.path.insert(0, base_path)
 import time
+import warnings
 from datetime import datetime
 
-import torch
+import pandas as pd
 import numpy as np
-from deeprobust.graph.data import Dataset
+import torch
 from tqdm import tqdm
+from attack.GOttack.OrbitAttack import OrbitAttack
+from model.GCN import dr_data_to_pyg_data, load_GCN_model
+from utilty.attack_visualization import visualize_restricted_attack_subgraph
+from attack.GOttack.orbit_table_generator import OrbitTableGenerator
+from deeprobust.graph.data import Dataset
+from deeprobust.graph.defense import GCN
+from deeprobust.graph.utils import classification_margin
 from config.config import *
-from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
-from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, \
-    LoanDecisionDataset
-from instance_level_explanation_subgraph.GNNExplainer_subgraph.generate_gnnexplainer_subgraph import \
-    generate_gnnexplainer_cf_subgraph
-from subgraph_quantify.graph_analysis import gnn_explainer_generate
+from utilty.utils import CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, normalize_adj, \
+    select_test_nodes
+
+warnings.filterwarnings("ignore")
 
 if __name__ == '__main__':
-    res = os.path.abspath(__file__)  # acquire absolute path of current file
-    base_path = os.path.dirname(
-        os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
-    sys.path.insert(0, base_path)
+
 
     ######################### initialize random state  #########################
     dataset_name = DATA_NAME
@@ -46,17 +51,16 @@ if __name__ == '__main__':
     with_bias = WITH_BIAS
     gcn_layer = GCN_LAYER
     attack_type = ATTACK_TYPE
-    explanation_type = EXPLANATION_TYPE
-    attack_method = ATTACK_METHOD
+    attack_method = "GOttack"
     attack_budget_list = ATTACK_BUDGET_LIST
-    explainer_method = "GNNExplainer"
+    top_t = ATTACK_BUDGET_LIST[0]
 
     np.random.seed(SEED_NUM)
     torch.manual_seed(SEED_NUM)
 
     time_name = datetime.now().strftime("%Y-%m-%d")
     # counterfactual explanation subgraph path
-    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
+    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/attack_subgraph/{attack_type}_{attack_method}_{dataset_name}_budget{attack_budget_list}'
     if not os.path.exists(counterfactual_explanation_subgraph_path):
         os.makedirs(counterfactual_explanation_subgraph_path)
 
@@ -110,39 +114,95 @@ if __name__ == '__main__':
     norm_adj = normalize_adj(dense_adj)
     pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
 
+    if gcn_layer != 2:
+        # surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # 代理损失:gnn model
+        surrogate = gnn_model
+    else:
+        surrogate = gnn_model
+
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
+    # target_node_list = target_node_list[0:10]
 
-    ######################### GNN explainer generate  #########################
-    explainer = gnn_explainer_generate(gnn_model, device, features, labels, gcn_layer)
-
-    ######################### GNN explainer generate  #########################
-    # Get CF examples in test set
+    ######################### attack subgraph generate  #########################
     start_0 = time.time()
-    test_cf_examples = []
-    # cfexp_subgraph = {}
+    df_orbit = OrbitTableGenerator(dataset_name).generate_orbit_table()
     time_list = []
+    test_cf_examples = []
     mis_cases = 0
     for target_node in tqdm(target_node_list):
-        cf_example, time_cost = generate_gnnexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer,
-                                                                  gnn_model, pre_output, dataset_name)
-        # print(cf_example)
+        start_time = time.time()
+        attack_model = OrbitAttack(surrogate, df_orbit, nnodes=data.adj.shape[0], device=device, top_t=top_t,
+                                   gcn_layer=gcn_layer)  # initialize the attack model
+        attack_model = attack_model.to(device)
+        attack_model.attack_cf(data.features, data.adj, data.labels, target_node, top_t)
+
+        edited_edges = attack_model.structure_perturbations
+        cf_adj = attack_model.modified_adj
+        cf_adj = torch.tensor(cf_adj.toarray())
+        extended_adj = data.adj
+        extended_adj = torch.tensor(extended_adj.toarray())
+        added_edges = []
+        removed_edges = []
+
+        for index, (u, v) in enumerate(edited_edges):
+            if extended_adj[u,v] == 0.0:
+                added_edges.append(edited_edges[index])
+            else:
+                removed_edges.append(edited_edges[index])
+
+        norm_adj = normalize_adj(cf_adj)
+        y_new_output = gnn_model.forward(pyg_data.x, norm_adj)
+        target_node_label = pre_output[target_node].argmax().item()
+        new_idx_label = y_new_output[target_node].argmax().item()
+
+        if new_idx_label != target_node_label:
+            print("find counterfactual explanation")
+            cf_example = {
+                "success": True,
+                "target_node": target_node,
+                "new_idx": target_node,
+                "added_edges": added_edges,
+                "removed_edges": removed_edges,
+                "explanation_size": len(edited_edges),
+                "original_pred": target_node_label,
+                "new_pred": new_idx_label,
+                "extended_adj": extended_adj,
+                "cf_adj": cf_adj,
+                "extended_feat": pyg_data.x,
+                "sub_labels": pyg_data.y
+            }
+        else:
+            print("Don't find counterfactual explanation")
+            cf_example = {
+                "success": False,
+                "target_node": target_node,
+                "new_idx": target_node,
+                "added_edges": added_edges,
+                "removed_edges": removed_edges,
+                "explanation_size": len(edited_edges),
+                "original_pred": target_node_label,
+                "new_pred": new_idx_label,
+                "extended_adj": extended_adj,
+                "cf_adj": cf_adj,
+                "extended_feat": pyg_data.x,
+                "sub_labels": pyg_data.y
+            }
+        time_cost = time.time() - start_time
+
         print("Time for one example: {:.4f}s".format(time_cost))
         time_list.append(time_cost)
-        # cfexp_subgraph[target_node] = cf_example["subgraph"] if cf_example else None
         test_cf_examples.append({"data": cf_example, "time_cost": time_cost})
         if cf_example['success']:
             mis_cases += 1
+
     print("Total time elapsed: {:.4f}min".format((time.time() - start_0) / 60))
     print("Number of CF examples found: {}/{}".format(mis_cases, len(target_node_list)))
 
-    # with open(counterfactual_explanation_subgraph_path + "/cfexp_subgraph.pickle", "wb") as fw:
-    #     pickle.dump(cfexp_subgraph, fw)
-
-    # Save CF examples in test set
+    # Save results
     with open(
             counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_seed{SEED_NUM}",
             "wb") as f:

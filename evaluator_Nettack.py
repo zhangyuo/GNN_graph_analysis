@@ -4,7 +4,7 @@
 # @Time     : 2025/9/4 17:17
 # @Author   : Yu Zhang
 # @Email    : yuzhang@cs.aau.dk
-# @File     : evaluator_ac_gnnexplainer.py
+# @File     : evaluator_gnnexplainer.py
 # @Software : PyCharm
 # @Desc     :
 """
@@ -13,43 +13,40 @@ from __future__ import print_function
 import sys
 
 from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANATION_TYPE, DATA_NAME, ATTACK_BUDGET_LIST, \
-    TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α1, α2, \
-    α3, \
-    TAU_C, LEARNING_RATE_AC, NUM_EPOCHS, NUM_EPOCHS_AC, k
-from model.GCN import load_GCN_model, dr_data_to_pyg_data
+    TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α2, α3, \
+    TAU_C, LEARNING_RATE_AC, k
+from model.GCN import load_GCN_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
-    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, compute_feat_sim
+    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset
 import numpy as np
 import os
 import pandas as pd
 import pickle
 import torch
-import warnings
 from deeprobust.graph.data import Dataset
 
-warnings.filterwarnings("ignore")
 res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(res)
 sys.path.insert(0, base_path)
 
 ######################### evaluated parameters setting  #########################
-attack_type = ATTACK_TYPE
-attack_method = ATTACK_METHOD
-explainer_method = "ACExplainer"
-explanation_type = EXPLANATION_TYPE
 dataset_name = DATA_NAME
-attack_budget_list = ATTACK_BUDGET_LIST
 test_model = TEST_MODEL
-gcn_layer = GCN_LAYER
+device = DEVICE
 nhid = HIDDEN_CHANNELS
 dropout = DROPOUT
 lr = LEARNING_RATE
 weight_decay = WEIGHT_DECAY
 with_bias = WITH_BIAS
-device = DEVICE
+gcn_layer = GCN_LAYER
+attack_type = ATTACK_TYPE
+attack_method = "Nettack"
+attack_budget_list = ATTACK_BUDGET_LIST
+top_t = ATTACK_BUDGET_LIST[0]
 tau_c = TAU_C
 
 np.random.seed(SEED_NUM)
+torch.manual_seed(SEED_NUM)
 
 ######################### loading deeprobust dataset  #########################
 data = None
@@ -60,8 +57,6 @@ if dataset_name == 'cora':
     data = Dataset(root=dataset_path, name=dataset_name)
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
-    # Create PyG Data object
-    pyg_data = dr_data_to_pyg_data(adj, features, labels)
 elif dataset_name == 'BA-SHAPES':
     # Create PyG Data object
     with open(dataset_path + "/BAShapes.pickle", "rb") as f:
@@ -109,15 +104,15 @@ target_node_list.sort()
 print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
 
 ######################### Load CF examples  #########################
-header = ['success', 'target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'plau_loss',
-          'original_pred', 'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', 'sub_labels']
+header = ['success','target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'original_pred',
+          'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', "sub_labels"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-15'
-counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
+time_name = '2025-09-16'
+counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/attack_subgraph/{attack_type}_{attack_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
-        counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_epochs{NUM_EPOCHS_AC}_seed{SEED_NUM}",
+        counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_seed{SEED_NUM}",
         "rb") as f:
     cf_examples = pickle.load(f)
     df_prep = []
@@ -163,14 +158,7 @@ for i in df.index:
         edited_num += df["explanation_size"][i]
 
     # plausibility
-    tt = 0.0
     if df["success"][i]:
-        # features = pyg_data.x
-        # for u,v in df["added_edges"][i]:
-        #     tt += compute_feat_sim(features[u], features[v])
-        # for u,v in df["removed_edges"][i]:
-        #     tt += compute_feat_sim(features[u], features[v])
-        # tt = tt / df["explanation_size"][i]
         L_plau = α2 * compute_deg_diff(orig_sub_adj,
                                        edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
                                                                                                    edited_sub_adj,

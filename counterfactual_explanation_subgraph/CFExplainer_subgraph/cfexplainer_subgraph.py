@@ -140,6 +140,7 @@ if __name__ == '__main__':
     explainer_method = "CFExplainer"
 
     np.random.seed(SEED_NUM)
+    torch.manual_seed(SEED_NUM)
 
     time_name = datetime.now().strftime("%Y-%m-%d")
     # counterfactual explanation subgraph path
@@ -200,7 +201,8 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
-    # target_node_list = target_node_list[100:110]
+    target_node_list.sort()
+    print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
 
     ######################### GNN explainer generate  #########################
     # Get CF examples in test set
@@ -208,6 +210,7 @@ if __name__ == '__main__':
     test_cf_examples = []
     cfexp_subgraph = {}
     time_list = []
+    mis_cases = 0
     for target_node in tqdm(target_node_list):
         edge_index = pyg_data.edge_index
         subgraph, cf_example, time_cost = generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels,
@@ -219,8 +222,10 @@ if __name__ == '__main__':
         time_list.append(time_cost)
         cfexp_subgraph[target_node] = subgraph
         test_cf_examples.append({"data": cf_example, "time_cost": time_cost})
+        if cf_example[-1]:
+            mis_cases += 1
     print("Total time elapsed: {:.4f}min".format((time.time() - start_0) / 60))
-    print("Number of CF examples found: {}/{}".format(len(test_cf_examples), len(target_node_list)))
+    print("Number of CF examples found: {}/{}".format(mis_cases, len(target_node_list)))
 
     with open(counterfactual_explanation_subgraph_path + "/cfexp_subgraph.pickle", "wb") as fw:
         pickle.dump(cfexp_subgraph, fw)

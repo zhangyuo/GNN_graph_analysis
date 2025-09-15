@@ -30,8 +30,8 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
     sample_num = {
         "cora": 10,
         "BA-SHAPES": 10,
-        "TREE-CYCLES": 30,
-        "Loan-Decision": 30,
+        "TREE-CYCLES": 20,
+        "Loan-Decision": 20,
         "ogbn-arxiv": 5
     }[dataset_name]
     if attack_type is None:
@@ -55,12 +55,13 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
             high += [x for x in class_num_sorted_margins[: sample_num]]
             low += [x for x in class_num_sorted_margins[-sample_num:]]
             other_0 = [x for x in class_num_sorted_margins[sample_num: -sample_num]]
-            if len(other_0) > 20:
-                other += np.random.choice(other_0, sample_num, replace=True).tolist()
-            elif len(other_0) > 0:
-                other += np.random.choice(other_0, len(other_0), replace=True).tolist()
-            else:
-                print(f"Warning: Classification other_0 number of class {class_num} is empty，Skip sampling")
+            other += np.random.choice(other_0, 2*sample_num, replace=False).tolist()
+            # if len(other_0) > 20:
+            #     other += np.random.choice(other_0, sample_num, replace=True).tolist()
+            # elif len(other_0) > 0:
+            #     other += np.random.choice(other_0, len(other_0), replace=True).tolist()
+            # else:
+            #     print(f"Warning: Classification other_0 number of class {class_num} is empty，Skip sampling")
 
         node_list += high + low + other
         node_list = [int(x) for x in node_list]
@@ -75,12 +76,19 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
             high += [x for x in class_num_sorted_margins[: sample_num]]
             low += [x for x in class_num_sorted_margins[-sample_num:]]
             other_0 = [x for x in class_num_sorted_margins[sample_num: -sample_num]]
-            if len(other_0) > 20:
-                other += np.random.choice(other_0, sample_num, replace=True).tolist()
-            elif len(other_0) > 0:
-                other += np.random.choice(other_0, len(other_0), replace=True).tolist()
+            if len(other_0) > 0:
+                try:
+                    other += np.random.choice(other_0, 2*sample_num, replace=False).tolist()
+                except:
+                    other += np.random.choice(other_0, 2*sample_num, replace=True).tolist()
             else:
-                print(f"Warning: Misclassification other_0 number of class {class_num} is empty，Skip sampling")
+                other += np.random.choice(other_0, len(other_0), replace=False).tolist()
+            # if len(other_0) > 20:
+            #     other += np.random.choice(other_0, sample_num, replace=True).tolist()
+            # elif len(other_0) > 0:
+            #     other += np.random.choice(other_0, len(other_0), replace=True).tolist()
+            # else:
+            #     print(f"Warning: Misclassification other_0 number of class {class_num} is empty，Skip sampling")
 
         node_list1 += high + low + other
         node_list1 = [int(x) for x in node_list1]
@@ -200,6 +208,14 @@ def accuracy(pred, labels):
     return correct / len(labels)  # 返回准确率
 
 
+# def compute_deg_diff(orig_sub_adj, edited_sub_adj):
+#     orig_degrees = torch.sum(orig_sub_adj, dim=1)
+#     new_degrees = torch.sum(edited_sub_adj, dim=1)
+#     deg_diff = torch.sum(
+#         torch.abs(new_degrees - orig_degrees) / (1 + orig_degrees)
+#     )
+#     return deg_diff
+
 def compute_deg_diff(orig_sub_adj, edited_sub_adj):
     orig_degrees = torch.sum(orig_sub_adj)
     new_degrees = torch.sum(edited_sub_adj)
@@ -209,14 +225,6 @@ def compute_deg_diff(orig_sub_adj, edited_sub_adj):
     return deg_diff
 
 
-def compute_feat_sim(target_node_feat, edited_node_feat):
-    feat_sim = F.cosine_similarity(
-        target_node_feat.unsqueeze(0),
-        edited_node_feat.unsqueeze(0)
-    )
-    return feat_sim
-
-
 def compute_motif_viol(orig_sub_adj, edited_sub_adj, tau_c):
     orig_cluster_coef = clustering_coefficient(orig_sub_adj)
     new_cluster_coef = clustering_coefficient(edited_sub_adj)
@@ -224,6 +232,14 @@ def compute_motif_viol(orig_sub_adj, edited_sub_adj, tau_c):
         torch.clamp(torch.abs(new_cluster_coef - orig_cluster_coef) - tau_c, min=0.0)
     )
     return motif_violation
+
+
+def compute_feat_sim(target_node_feat, edited_node_feat):
+    feat_sim = F.cosine_similarity(
+        target_node_feat.unsqueeze(0),
+        edited_node_feat.unsqueeze(0)
+    )
+    return feat_sim
 
 
 def clustering_coefficient(adj_tensor: torch.Tensor) -> torch.Tensor:

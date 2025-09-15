@@ -16,7 +16,9 @@ from deeprobust.graph.defense import GraphConvolution
 import numpy as np
 
 from utilty.utils import normalize_adj, get_degree_matrix, compute_deg_diff, compute_motif_viol, compute_feat_sim
-
+from config.config import TEST_MODEL
+from torch_geometric.nn import GINConv, SAGEConv
+from torch.nn import Linear, Sequential, BatchNorm1d, ReLU, Dropout
 
 class SignedMaskPerturbation(nn.Module):
     def __init__(self,
@@ -71,7 +73,7 @@ class SignedMaskPerturbation(nn.Module):
                 self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i]])
                 mask_index += 1
         # 遍历所有attack_nodes，针对无现有边场景倾向添加，但需要抑制加边
-        init_value = -0.1
+        init_value = 0.4
         for i in attack_nodes_idx:
             if i != self.node_idx:
                 mask_init_values.append(init_value)
@@ -245,14 +247,31 @@ class GNNPerturb(nn.Module):
         self.perturb_layer = SignedMaskPerturbation(extended_sub_adj, node_idx, node_num_l_hop, top_k, tau_plus, tau_minus)
 
         # GCN层定义
-        if self.gcn_layer == 3:
-            self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
-            self.gc2 = GraphConvolution(nhid, nhid, with_bias=with_bias)
-            self.gc3 = GraphConvolution(nhid, nclass, with_bias=with_bias)
-            self.lin = nn.Linear(nhid + nhid + nclass, nclass)
-        else:
-            self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
-            self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
+        if TEST_MODEL == "GCN" or TEST_MODEL not in ["GraphSAGE", "GIN"]:
+            if self.gcn_layer == 3:
+                self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
+                self.gc2 = GraphConvolution(nhid, nhid, with_bias=with_bias)
+                self.gc3 = GraphConvolution(nhid, nclass, with_bias=with_bias)
+                self.lin = nn.Linear(nhid + nhid + nclass, nclass)
+            else:
+                self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
+                self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
+        elif TEST_MODEL == "GraphSAGE":
+            self.conv1 = SAGEConv(nfeat, nhid)
+            self.conv2 = SAGEConv(nhid, nhid)
+            self.conv3 = SAGEConv(nhid, nclass)
+        elif TEST_MODEL == "GIN":
+            self.gc1 = GINConv(
+                Sequential(Linear(nfeat, nhid), ReLU(),
+                           Linear(nhid, nhid), ReLU()))
+            self.gc2 = GINConv(
+                Sequential(Linear(nhid, nhid), ReLU(),
+                           Linear(nhid, nhid), ReLU()))
+            self.gc3 = GINConv(
+                Sequential(Linear(nhid, nhid), ReLU(),
+                           Linear(nhid, nhid), ReLU()))
+            self.lin1 = Linear(nhid * 3, nhid * 3)
+            self.lin2 = Linear(nhid * 3, nclass)
 
     def forward(self, x: torch.Tensor, sub_adj: torch.Tensor) -> torch.Tensor:
         """训练模式：使用连续扰动矩阵"""
@@ -294,19 +313,44 @@ class GNNPerturb(nn.Module):
         return self._gcn_forward(x, norm_adj)
 
     def _gcn_forward(self, x: torch.Tensor, norm_adj: torch.Tensor) -> torch.Tensor:
-        if self.gcn_layer == 3:
-            x1 = F.relu(self.gc1(x, norm_adj))
-            x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = F.relu(self.gc2(x1, norm_adj))
-            x2 = F.dropout(x2, self.dropout, training=self.training)
-            x3 = self.gc3(x2, norm_adj)
-            x = self.lin(torch.cat((x1, x2, x3), dim=1))
+        if TEST_MODEL == "GCN" or TEST_MODEL not in ["GraphSAGE", "GIN"]:
+            if self.gcn_layer == 3:
+                x1 = F.relu(self.gc1(x, norm_adj))
+                x1 = F.dropout(x1, self.dropout, training=self.training)
+                x2 = F.relu(self.gc2(x1, norm_adj))
+                x2 = F.dropout(x2, self.dropout, training=self.training)
+                x3 = self.gc3(x2, norm_adj)
+                x = self.lin(torch.cat((x1, x2, x3), dim=1))
+                return F.log_softmax(x, dim=1)
+            else:
+                x1 = F.relu(self.gc1(x, norm_adj))
+                x1 = F.dropout(x1, self.dropout, training=self.training)
+                x2 = self.gc2(x1, norm_adj)
+                return F.log_softmax(x2, dim=1)
+        elif TEST_MODEL == "GraphSAGE":
+            x = self.conv1(data.x, data.edge_index)
+            x = F.elu(x)
+            x = F.dropout(x, p=self.dropout)
+
+            x = self.conv2(x, data.edge_index)
+            x = F.elu(x)
+            x = F.dropout(x, p=self.dropout)
+
+            x = self.conv3(x, data.edge_index)
+            x = F.elu(x)
+            x = F.dropout(x, p=self.dropout)
             return F.log_softmax(x, dim=1)
-        else:
-            x1 = F.relu(self.gc1(x, norm_adj))
-            x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = self.gc2(x1, norm_adj)
-            return F.log_softmax(x2, dim=1)
+        elif TEST_MODEL == "GIN":
+            x, edge_index = data.x, data.edge_index
+            h1 = self.gc1(x, edge_index)
+            h2 = self.gc2(h1, edge_index)
+            h3 = self.gc3(h2, edge_index)
+            h = torch.cat((h1, h2, h3), dim=1)
+            h = self.lin1(h)
+            h = h.relu()
+            h = F.dropout(h, p=self.dropout, training=self.training)
+            h = self.lin2(h)
+            return F.log_softmax(h, dim=1)
 
     def get_mask_parameters(self) -> nn.Parameter:
         """获取可训练的掩码参数"""
@@ -323,6 +367,7 @@ class GNNPerturb(nn.Module):
             output[self.node_idx].unsqueeze(0),
             y_pred_orig.unsqueeze(0)
         ) * (y_pred_new_actual == y_pred_orig.unsqueeze(0)).float()
+        # pred_loss = - F.cross_entropy(output[self.node_idx].unsqueeze(0), self.y_pred_orig.unsqueeze(0))
 
         # 稀疏损失 (L0范数)
         cf_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
@@ -335,13 +380,13 @@ class GNNPerturb(nn.Module):
         addition_mask = (self.delta_A == 1) & (self.extended_sub_adj == 0)
         num_additions = addition_mask.sum() / 2
 
-        dist_loss = 0.5 * num_deletions + 1.5 * num_additions
-
-        if dist_loss > 0:
-            pass
+        dist_loss = 1 * num_deletions + 1 * num_additions
 
         # 现实性损失
-        plau_loss = self.compute_plausibility_loss()
+        if self.lambda_plau == 0:
+            plau_loss = torch.tensor(0.0)
+        else:
+            plau_loss = self.compute_plausibility_loss()
 
         # 加权总损失
         total_loss = self.lambda_pred * pred_loss + self.lambda_dist * dist_loss + self.lambda_plau * plau_loss
@@ -357,41 +402,24 @@ class GNNPerturb(nn.Module):
         loss_components_4 = torch.tensor(0.0)
 
         # 1. 特征相似度惩罚 (仅对添加边)
-        # add_mask = (self.delta_A > 0.5)
-        # if add_mask.sum() > 0:
-        #     # 计算特征相似度
-        #     target_feat = self.sub_feat[self.node_idx]
-        #     for i in range(self.extended_sub_adj.size(0)):
-        #         if add_mask[self.node_idx, i]:
-        #             feat_sim = compute_feat_sim(target_feat, self.sub_feat[i])
-        #             loss_components_1 = loss_components_1 + (1 - feat_sim) * self.α1
-        #     loss_components_1 = loss_components_1 / add_mask.sum()
+        add_mask = (self.delta_A > 0.5)
+        if add_mask.sum() > 0:
+            # 计算特征相似度
+            target_feat = self.sub_feat[self.node_idx]
+            for i in range(self.extended_sub_adj.size(0)):
+                if add_mask[self.node_idx, i]:
+                    feat_sim = compute_feat_sim(target_feat, self.sub_feat[i])
+                    loss_components_1 = loss_components_1 + (1 - feat_sim) * self.α1
+            loss_components_1 = loss_components_1 / add_mask.sum()
 
         # 2. 度分布惩罚
         orig_sub_adj= self.extended_sub_adj
         edited_sub_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
-        deg_diff = compute_deg_diff(orig_sub_adj[self.node_idx], edited_sub_adj[self.node_idx])
+        deg_diff = compute_deg_diff(orig_sub_adj, edited_sub_adj)
         loss_components_2 = deg_diff * self.α2
 
         # 3. penalty of clustering coefficients drastic changes
-        node_idx = self.node_idx
-        motif_violation = compute_motif_viol(orig_sub_adj, edited_sub_adj, self.tau_c, node_idx)
-
-        # nodes = list(orig_sub_g.nodes())
-        # n = len(nodes)
-        # # 计算每个节点的违反度
-        # node_violations = []
-        # for node in nodes:
-        #     # 获取当前节点在原始图和扰动图中的聚类系数
-        #     cc_orig = orig_cluster_coef[node]
-        #     cc_pert = new_cluster_coef[node]
-        #     # 计算绝对差异并减去容忍阈值
-        #     diff = abs(cc_pert - cc_orig)
-        #     violation = max(0.0, diff - self.tau_c)
-        #     node_violations.append(violation)
-        # # 计算MotifViol值 (所有节点违反度的平均值)
-        # motif_violation = sum(node_violations) / n
-
+        motif_violation = compute_motif_viol(orig_sub_adj, edited_sub_adj, self.tau_c)
         loss_components_3 = motif_violation * self.α3
 
         # 4. domain-specific constraint
@@ -413,6 +441,6 @@ class GNNPerturb(nn.Module):
 
         # loss_components = loss_components_1 + loss_components_2 + loss_components_3 + loss_components_4
 
-        loss_components = loss_components_2 + loss_components_3
+        loss_components = loss_components_1 + loss_components_2 + loss_components_3
 
         return loss_components

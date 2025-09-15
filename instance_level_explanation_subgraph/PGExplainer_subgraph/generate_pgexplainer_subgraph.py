@@ -68,8 +68,7 @@ def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer
     time_cost = time.time() - start_time
     print(f"factual explainer generates results in {time_cost:.4f}s!")
 
-    cf_example = None
-    threshold = 0
+    threshold = -1
     edge_importance = edge_mask[edge_mask > threshold].detach().cpu().numpy()
     edge_index = explanation.edge_index[:, edge_mask > threshold].cpu().numpy()
 
@@ -120,7 +119,7 @@ def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer
                 "sub_labels": sub_labels
             }
             break
-        if index + 1 == max_edits:
+        if index + 1 == max_edits or index + 1 == len(sorted_edge_index.T):
             print("Don't find counterfactual explanation")
             cf_example = {
                 "success": False,

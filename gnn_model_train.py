@@ -38,6 +38,7 @@ if __name__ == "__main__":
     gcn_layer = GCN_LAYER
 
     np.random.seed(SEED_NUM)
+    torch.manual_seed(SEED_NUM)
 
     ######################### loading deeprobust dataset  #########################
     data = None
@@ -110,6 +111,10 @@ if __name__ == "__main__":
             file_path = os.path.join(model_save_path, 'gcn_model.pth')
             torch.save(gnn_model.state_dict(), file_path)
             gnn_model.eval()
+    elif not gnn_model and test_model == 'GraphSAGE':
+        pass
+    elif not gnn_model and test_model == 'GIN':
+        pass
     else:
         pass
 

@@ -9,10 +9,10 @@
 # @Desc     :
 """
 # baseline model
-TEST_MODEL = "GCN"  # ["GCN"]
+TEST_MODEL = "GCN"  # ["GCN", "GraphSAGE", "GIN"]
 
 # dataset
-DATA_NAME = "cora"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
+DATA_NAME = "Loan-Decision"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
@@ -93,10 +93,10 @@ LAMBDA_PLAU = 0.5  # 现实惩罚项权重
 MAX_EDITS = 5  # 最大扰动预算
 TAU_PLUS = 0.5  # 加边阈值
 TAU_MINUS = -0.5  # 减边阈值
-α1 = 1  # 特征相似惩罚项权重-针对加边
-α2 = 0  # 度变化惩罚项权重 1
-α3 = 1  # 聚类系数变化惩罚项权重 0.5
-α4 = 20  # 领域知识破坏惩罚项权重-针对加边
-TAU_C = 0.3  # 聚类系数变化容忍度阈值
-k = 5
+α1 = 0  # 特征相似惩罚项权重0
+α2 = 1.5  # 度变化惩罚项权重1.5
+α3 = 1.0  # 聚类系数变化惩罚项权重1.0
+α4 = 0  # 领域知识破坏惩罚项权重0
+TAU_C = 0  # 聚类系数变化容忍度阈值0
 ####################################################################
+k = 1  # 1

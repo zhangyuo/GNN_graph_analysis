@@ -100,13 +100,15 @@ y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
 ######################### select test nodes  #########################
 target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, y_pred_orig, labels)
 target_node_list += target_node_list1
+target_node_list.sort()
+print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
 
 ######################### Load CF examples  #########################
 header = ['success','target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'original_pred',
           'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', "sub_labels"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-14'
+time_name = '2025-09-15'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
@@ -119,6 +121,8 @@ with open(
         time_list.append(example["time_cost"])
         if example["data"]:
             df_prep.append(example["data"])
+        else:
+            print('o')
     df = pd.DataFrame(df_prep, columns=df_prep[0].keys())
 
 ######################### Metrics Evaluation  #########################
@@ -136,7 +140,11 @@ for i in df.index:
     new_label = gnn_model.forward(sub_feat, edited_norm_adj)
 
     # misclassification
-    if df["success"][i]:
+    # if df["success"][i]:
+    #     misclas_num += 1
+    a1 = y_pred_orig[df["target_node"][i]].argmax()
+    a2 = new_label[df["new_idx"][i]].argmax()
+    if a1.item() != a2.item():
         misclas_num += 1
 
     # fidelity

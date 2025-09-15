@@ -102,13 +102,15 @@ y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
 ######################### select test nodes  #########################
 target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, y_pred_orig, labels)
 target_node_list += target_node_list1
+target_node_list.sort()
+print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
 
 ######################### Load CF examples  #########################
 header = ["target_node", "new_idx", "cf_adj", "sub_adj", "y_pred_orig", "y_pred_new_actual",
           "sub_labels", "loss_graph_dist", "sub_feat", "success"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-14'
+time_name = '2025-09-15'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
@@ -138,7 +140,11 @@ for i in df.index:
     new_label = gnn_model.forward(sub_feat, edited_norm_adj)
 
     # misclassification
-    if df["success"][i]:
+    # if df["success"][i]:
+    #     misclas_num += 1
+    a1 = y_pred_orig[df["target_node"][i]].argmax()
+    a2 = new_label[df["new_idx"][i]].argmax()
+    if a1.item() != a2.item():
         misclas_num += 1
 
     # fidelity
@@ -177,8 +183,5 @@ print("Metric 2 - Fidelity: {:.4f}".format(fidelity / len(target_node_list)))
 print("Metric 3 - Average Explanation Size: {:.2f}, E+: {:.2f}, E-: {:.2f}".format(edited_num / misclas_num,
                                                                                    added_edges_num / misclas_num,
                                                                                    deleted_edges_num / misclas_num))
-# print("Metric 3 - Average Explanation Size: {:.2f}, E+: {:.2f}, E-: {:.2f}".format(edited_num / len(target_node_list),
-#                                                                                    added_edges_num / len(target_node_list),
-#                                                                                    deleted_edges_num / len(target_node_list)))
-print("Metric 4 - Average Plausibility: {:.4f}".format(S_plau / misclas_num))
+print("Metric 4 - Average Plausibility: {:.2f}".format(S_plau / misclas_num))
 print("Metric 5 - Average Time Cost: {:.2f}s/per".format(np.mean(np.array(time_list))))

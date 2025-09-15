@@ -320,7 +320,8 @@ class OrbitAttack(BaseAttack):
             self.ori_features = features.tolil()
             self.modified_features = features.tolil()
 
-        self.matching_index = kwargs['high_sim_node']
+        if kwargs.get('high_sim_node', None):
+            self.matching_index = kwargs['high_sim_node']
 
 
         assert n_perturbations > 0, "need at least one perturbation"

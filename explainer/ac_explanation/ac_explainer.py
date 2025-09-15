@@ -134,6 +134,9 @@ class ACExplainer:
         elif self.optimizer_type == "Adam":
             self.cf_optimizer = optim.Adam([self.cf_model.get_mask_parameters()], lr=self.lr)
 
+        # lr adaptive
+        self.scheduler = optim.lr_scheduler.StepLR(self.cf_optimizer, step_size=100, gamma=0.5)
+
     def explain(self) -> dict:
         """训练解释器"""
         best_loss = float('inf')
@@ -203,16 +206,9 @@ class ACExplainer:
 
             if no_improve > 20:  # 提前停止
                 break
+            self.scheduler.step()
 
         if best_delta_A is not None:
-            # 返回结果
-            # return {
-            #     "delta_A": best_delta_A,
-            #     "cf_adj": best_cf_adj,
-            #     "original_pred": self.y_pred_orig,
-            #     "new_pred": best_pred
-            # }
-
             # 后剪枝
             pruned_delta_A = self.minimality_pruning(best_delta_A, perturb_layer, full_mask)
             final_result = {

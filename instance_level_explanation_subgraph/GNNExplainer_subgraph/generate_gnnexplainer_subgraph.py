@@ -182,7 +182,7 @@ def generate_gnnexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explaine
                 "sub_labels": sub_labels
             }
             break
-        if index + 1 == max_edits:
+        if index + 1 == max_edits or index + 1 == len(sorted_edge_index.T):
             print("Don't find counterfactual explanation")
             cf_example = {
                 "success": False,

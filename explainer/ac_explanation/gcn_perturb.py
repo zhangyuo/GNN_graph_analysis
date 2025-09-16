@@ -17,8 +17,10 @@ import numpy as np
 
 from utilty.utils import normalize_adj, get_degree_matrix, compute_deg_diff, compute_motif_viol, compute_feat_sim
 from config.config import TEST_MODEL
-from torch_geometric.nn import GINConv, SAGEConv
+from torch_geometric.nn import GINConv, SAGEConv, APPNP, GraphConv, TransformerConv
 from torch.nn import Linear, Sequential, BatchNorm1d, ReLU, Dropout
+from torch_geometric.utils import dense_to_sparse
+
 
 class SignedMaskPerturbation(nn.Module):
     def __init__(self,
@@ -67,7 +69,8 @@ class SignedMaskPerturbation(nn.Module):
         ones_indices = torch.nonzero(self.extended_sub_adj == 1)
         non_diagonal_ones = ones_indices[ones_indices[:, 0] != ones_indices[:, 1]].tolist()
         for i in range(len(non_diagonal_ones)):
-            if non_diagonal_ones[i][0] in lhop_node_index and non_diagonal_ones[i][1] in lhop_node_index and non_diagonal_ones[i][0] < non_diagonal_ones[i][1]:
+            if non_diagonal_ones[i][0] in lhop_node_index and non_diagonal_ones[i][1] in lhop_node_index and \
+                    non_diagonal_ones[i][0] < non_diagonal_ones[i][1]:
                 # 现有边初始化为小负数 (倾向删除)
                 mask_init_values.append(init_value)
                 self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i]])
@@ -223,7 +226,9 @@ class GNNPerturb(nn.Module):
                  α4: float = 0.5,
                  tau_c: float = 0.1,
                  gcn_layer: int = 2,
-                 with_bias: bool = True):
+                 with_bias: bool = True,
+                 test_model: str = "GCN",
+                 heads: int = 2):
         super().__init__()
 
         self.gcn_layer = gcn_layer
@@ -241,13 +246,16 @@ class GNNPerturb(nn.Module):
         self.α3 = α3
         self.α4 = α4
         self.tau_c = tau_c
+        self.model_name = test_model
+        self.heads = heads
 
         # 扰动层
         print(f"Input extended_sub_adj.requires_grad: {extended_sub_adj.requires_grad}")
-        self.perturb_layer = SignedMaskPerturbation(extended_sub_adj, node_idx, node_num_l_hop, top_k, tau_plus, tau_minus)
+        self.perturb_layer = SignedMaskPerturbation(extended_sub_adj, node_idx, node_num_l_hop, top_k, tau_plus,
+                                                    tau_minus)
 
         # GCN层定义
-        if TEST_MODEL == "GCN" or TEST_MODEL not in ["GraphSAGE", "GIN"]:
+        if self.model_name == "GCN":
             if self.gcn_layer == 3:
                 self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
                 self.gc2 = GraphConvolution(nhid, nhid, with_bias=with_bias)
@@ -256,22 +264,12 @@ class GNNPerturb(nn.Module):
             else:
                 self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
                 self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
-        elif TEST_MODEL == "GraphSAGE":
-            self.conv1 = SAGEConv(nfeat, nhid)
-            self.conv2 = SAGEConv(nhid, nhid)
-            self.conv3 = SAGEConv(nhid, nclass)
-        elif TEST_MODEL == "GIN":
-            self.gc1 = GINConv(
-                Sequential(Linear(nfeat, nhid), ReLU(),
-                           Linear(nhid, nhid), ReLU()))
-            self.gc2 = GINConv(
-                Sequential(Linear(nhid, nhid), ReLU(),
-                           Linear(nhid, nhid), ReLU()))
-            self.gc3 = GINConv(
-                Sequential(Linear(nhid, nhid), ReLU(),
-                           Linear(nhid, nhid), ReLU()))
-            self.lin1 = Linear(nhid * 3, nhid * 3)
-            self.lin2 = Linear(nhid * 3, nclass)
+        elif self.model_name == "GarphTransformer":
+            self.layers.append(TransformerConv(nfeat, nhid, heads=heads, dropout=dropout, edge_dim=1))
+            for _ in range(self.gcn_layer - 2):
+                self.layers.append(
+                    TransformerConv(nhid * heads, nhid, heads=heads, dropout=dropout, edge_dim=1))
+            self.layers.append(TransformerConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
 
     def forward(self, x: torch.Tensor, sub_adj: torch.Tensor) -> torch.Tensor:
         """训练模式：使用连续扰动矩阵"""
@@ -313,7 +311,7 @@ class GNNPerturb(nn.Module):
         return self._gcn_forward(x, norm_adj)
 
     def _gcn_forward(self, x: torch.Tensor, norm_adj: torch.Tensor) -> torch.Tensor:
-        if TEST_MODEL == "GCN" or TEST_MODEL not in ["GraphSAGE", "GIN"]:
+        if self.model_name == "GCN":
             if self.gcn_layer == 3:
                 x1 = F.relu(self.gc1(x, norm_adj))
                 x1 = F.dropout(x1, self.dropout, training=self.training)
@@ -327,30 +325,20 @@ class GNNPerturb(nn.Module):
                 x1 = F.dropout(x1, self.dropout, training=self.training)
                 x2 = self.gc2(x1, norm_adj)
                 return F.log_softmax(x2, dim=1)
-        elif TEST_MODEL == "GraphSAGE":
-            x = self.conv1(data.x, data.edge_index)
-            x = F.elu(x)
-            x = F.dropout(x, p=self.dropout)
-
-            x = self.conv2(x, data.edge_index)
-            x = F.elu(x)
-            x = F.dropout(x, p=self.dropout)
-
-            x = self.conv3(x, data.edge_index)
-            x = F.elu(x)
-            x = F.dropout(x, p=self.dropout)
+        elif self.model_name == "GarphTransformer":
+            edge_index, edge_weight = dense_to_sparse(norm_adj)
+            if edge_weight is not None:
+                edge_attr = edge_weight.view(-1, 1)  # 变成 [num_edges, 1]
+            else:
+                edge_attr = None
+            edge_weight = edge_attr
+            for conv in self.gcn_layer[:-1]:
+                x = conv(x, edge_index, edge_weight)
+                x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
+            # 最后一层
+            x = self.layers[-1](x, edge_index, edge_weight)
             return F.log_softmax(x, dim=1)
-        elif TEST_MODEL == "GIN":
-            x, edge_index = data.x, data.edge_index
-            h1 = self.gc1(x, edge_index)
-            h2 = self.gc2(h1, edge_index)
-            h3 = self.gc3(h2, edge_index)
-            h = torch.cat((h1, h2, h3), dim=1)
-            h = self.lin1(h)
-            h = h.relu()
-            h = F.dropout(h, p=self.dropout, training=self.training)
-            h = self.lin2(h)
-            return F.log_softmax(h, dim=1)
 
     def get_mask_parameters(self) -> nn.Parameter:
         """获取可训练的掩码参数"""
@@ -413,7 +401,7 @@ class GNNPerturb(nn.Module):
             loss_components_1 = loss_components_1 / add_mask.sum()
 
         # 2. 度分布惩罚
-        orig_sub_adj= self.extended_sub_adj
+        orig_sub_adj = self.extended_sub_adj
         edited_sub_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
         deg_diff = compute_deg_diff(orig_sub_adj, edited_sub_adj)
         loss_components_2 = deg_diff * self.α2

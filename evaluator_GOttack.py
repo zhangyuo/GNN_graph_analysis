@@ -12,10 +12,12 @@ from __future__ import division
 from __future__ import print_function
 import sys
 
+from tqdm import tqdm
+
 from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANATION_TYPE, DATA_NAME, ATTACK_BUDGET_LIST, \
     TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α2, α3, \
     TAU_C, LEARNING_RATE_AC, k
-from model.GCN import load_GCN_model
+from model.GCN import load_GCN_model, dr_data_to_pyg_data
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
     BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset
 import numpy as np
@@ -57,6 +59,8 @@ if dataset_name == 'cora':
     data = Dataset(root=dataset_path, name=dataset_name)
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    # Create PyG Data object
+    pyg_data = dr_data_to_pyg_data(adj, features, labels)
 elif dataset_name == 'BA-SHAPES':
     # Create PyG Data object
     with open(dataset_path + "/BAShapes.pickle", "rb") as f:
@@ -105,7 +109,7 @@ print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_
 
 ######################### Load CF examples  #########################
 header = ['success','target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'original_pred',
-          'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', "sub_labels"]
+          'new_pred', 'cf_adj']
 
 # counterfactual explanation subgraph path
 time_name = '2025-09-16'
@@ -130,10 +134,10 @@ added_edges_num = 0.0
 deleted_edges_num = 0.0
 edited_num = 0.0
 S_plau = 0.0
-for i in df.index:
-    orig_sub_adj = torch.tensor(df["extended_adj"][i])
-    edited_sub_adj = torch.tensor(df["cf_adj"][i])
-    sub_feat = df["extended_feat"][i]
+orig_sub_adj = torch.tensor(data.adj.toarray())
+sub_feat = pyg_data.x
+for i in tqdm(df.index):
+    edited_sub_adj = torch.tensor(df["cf_adj"][i].toarray())
     edited_norm_adj = normalize_adj(edited_sub_adj)
     new_label = gnn_model.forward(sub_feat, edited_norm_adj)
 

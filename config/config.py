@@ -9,10 +9,10 @@
 # @Desc     :
 """
 # baseline model
-TEST_MODEL = "GCN"  # ["GCN", "GraphSAGE", "GIN"]
+TEST_MODEL = "GraphTransformer"  # ["GCN", "GraphTransformer"]
 
 # dataset
-DATA_NAME = "Loan-Decision"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
+DATA_NAME = "cora"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
@@ -25,47 +25,89 @@ EXPLANATION_TYPE = 'counterfactual'  # ['instance-level', 'class-level', 'counte
 EXPLAINER_METHOD = 'CFExplainer'  # ['GNNExplainer', 'PGExplainer', 'CFExplainer', 'ACExplainer']
 ####################################################################
 
-################ GCN model parameters for datasets ################
-if DATA_NAME == "cora":
-    HIDDEN_CHANNELS = 16
-    DROPOUT = 0.5
-    WITH_BIAS = True
-    WEIGHT_DECAY = 0.01  # weight decay coefficient (l2 normalization) for GCN
-    LEARNING_RATE = 0.01
-    GCN_LAYER = 2
-    GCN_EPOCHS = 500
-elif DATA_NAME == "BA-SHAPES":
-    HIDDEN_CHANNELS = 100
-    DROPOUT = 0
-    WITH_BIAS = True
-    WEIGHT_DECAY = 0.001
-    LEARNING_RATE = 0.001
-    GCN_LAYER = 2
-    GCN_EPOCHS = 20000
-elif DATA_NAME == "TREE-CYCLES":
-    HIDDEN_CHANNELS = 100
-    DROPOUT = 0
-    WITH_BIAS = True
-    WEIGHT_DECAY = 0.001
-    LEARNING_RATE = 0.001
-    GCN_LAYER = 3
-    GCN_EPOCHS = 5000
-elif DATA_NAME == "Loan-Decision":
-    HIDDEN_CHANNELS = 100
-    DROPOUT = 0
-    WITH_BIAS = True
-    WEIGHT_DECAY = 0.001
-    LEARNING_RATE = 0.001
-    GCN_LAYER = 3
-    GCN_EPOCHS = 5000
-elif DATA_NAME == "ogbn-arxiv":
-    HIDDEN_CHANNELS = 100
-    DROPOUT = 0.5
-    WITH_BIAS = True
-    WEIGHT_DECAY = 0.001
-    LEARNING_RATE = 0.01
-    GCN_LAYER = 2
-    GCN_EPOCHS = 5000
+################ GNN model parameters for datasets ################
+if TEST_MODEL == "GCN":
+    if DATA_NAME == "cora":
+        HIDDEN_CHANNELS = 16
+        DROPOUT = 0.5
+        WITH_BIAS = True
+        WEIGHT_DECAY = 0.01  # weight decay coefficient (l2 normalization) for GCN
+        LEARNING_RATE = 0.01
+        GCN_LAYER = 2
+        GCN_EPOCHS = 500
+    elif DATA_NAME == "BA-SHAPES":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        WITH_BIAS = True
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 2
+        GCN_EPOCHS = 20000
+    elif DATA_NAME == "TREE-CYCLES":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        WITH_BIAS = True
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 3
+        GCN_EPOCHS = 5000
+    elif DATA_NAME == "Loan-Decision":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        WITH_BIAS = True
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 3
+        GCN_EPOCHS = 5000
+    elif DATA_NAME == "ogbn-arxiv":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0.5
+        WITH_BIAS = True
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.01
+        GCN_LAYER = 2
+        GCN_EPOCHS = 5000
+elif TEST_MODEL == "GraphTransformer":
+    if DATA_NAME == "cora":
+        HIDDEN_CHANNELS = 16
+        DROPOUT = 0.3
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.01
+        LEARNING_RATE = 0.01
+        GCN_LAYER = 2
+        GCN_EPOCHS = 200
+    elif DATA_NAME == "BA-SHAPES":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 2
+        GCN_EPOCHS = 20000
+    elif DATA_NAME == "TREE-CYCLES":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 2
+        GCN_EPOCHS = 5000
+    elif DATA_NAME == "Loan-Decision":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 2
+        GCN_EPOCHS = 5000
+    elif DATA_NAME == "ogbn-arxiv":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0.5
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.01
+        GCN_LAYER = 2
+        GCN_EPOCHS = 5000
 ####################################################################
 
 ################ Attack model parameters for datasets in graph analysis ##############
@@ -82,12 +124,12 @@ N_Momentum = 0.9  # Nesterov momentum
 ####################################################################
 
 ################ ACExplainer parameters for datasets ##############
-LEARNING_RATE_AC = 10 ** -2  # learning rate for acexplainer training
+LEARNING_RATE_AC = 10 ** -3  # learning rate for acexplainer training
 MAX_ATTACK_NODES_NUM = 20  # max number of selected attacked nodes
 NUM_EPOCHS_AC = 200  # Num epochs for explainer
 OPTIMIZER_AC = "SGD"  # SGD or Adadelta or Adam
 N_Momentum_AC = 0.9  # Nesterov momentum
-LAMBDA_PRED = 1.0  # 预测损失权重
+LAMBDA_PRED = 2.0  # 预测损失权重
 LAMBDA_DIST = 0.5  # 稀疏项惩罚权重
 LAMBDA_PLAU = 0.5  # 现实惩罚项权重
 MAX_EDITS = 5  # 最大扰动预算
@@ -98,5 +140,7 @@ TAU_MINUS = -0.5  # 减边阈值
 α3 = 1.0  # 聚类系数变化惩罚项权重1.0
 α4 = 0  # 领域知识破坏惩罚项权重0
 TAU_C = 0  # 聚类系数变化容忍度阈值0
-####################################################################
+
+################ Evaluation Metrics ################################
 k = 1  # 1
+####################################################################

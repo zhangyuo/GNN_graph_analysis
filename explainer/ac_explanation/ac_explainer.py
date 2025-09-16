@@ -49,7 +49,10 @@ class ACExplainer:
                  tau_c: float = 0.1,
                  device: str = "cuda",
                  gcn_layer: int = 2,
-                 with_bias: bool = True):
+                 with_bias: bool = True,
+                 test_model: str = "GCN",
+                 heads: int = 2
+                 ):
         # 将模型和数据移动到指定设备
         self.model = model.to(device)
         self.model.eval()
@@ -108,7 +111,9 @@ class ACExplainer:
             α4=self.α4,
             tau_c=self.tau_c,
             gcn_layer=gcn_layer,
-            with_bias=with_bias
+            with_bias=with_bias,
+            test_model=test_model,
+            heads=heads
         ).to(device)
 
         # 继承原模型参数

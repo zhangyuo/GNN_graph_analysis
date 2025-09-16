@@ -170,10 +170,10 @@ if __name__ == '__main__':
                 "explanation_size": len(edited_edges),
                 "original_pred": target_node_label,
                 "new_pred": new_idx_label,
-                "extended_adj": extended_adj,
-                "cf_adj": cf_adj,
-                "extended_feat": pyg_data.x,
-                "sub_labels": pyg_data.y
+                # "extended_adj": extended_adj,
+                "cf_adj": attack_model.modified_adj,
+                # "extended_feat": pyg_data.x,
+                # "sub_labels": pyg_data.y
             }
         else:
             print("Don't find counterfactual explanation")
@@ -186,10 +186,10 @@ if __name__ == '__main__':
                 "explanation_size": len(edited_edges),
                 "original_pred": target_node_label,
                 "new_pred": new_idx_label,
-                "extended_adj": extended_adj,
-                "cf_adj": cf_adj,
-                "extended_feat": pyg_data.x,
-                "sub_labels": pyg_data.y
+                # "extended_adj": extended_adj,
+                "cf_adj": attack_model.modified_adj,
+                # "extended_feat": pyg_data.x,
+                # "sub_labels": pyg_data.y
             }
         time_cost = time.time() - start_time
 

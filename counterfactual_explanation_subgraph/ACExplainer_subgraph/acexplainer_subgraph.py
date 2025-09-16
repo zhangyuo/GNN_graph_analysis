@@ -50,7 +50,9 @@ def generate_acexplainer_subgraph(df_orbit,
                                   device: str = "cuda",
                                   nhid: int = 16,
                                   dropout: float = 0.5,
-                                  with_bias: bool = True):
+                                  with_bias: bool = True,
+                                  test_model: str = "GCN",
+                                  heads: int = 2):
     """
     生成AC-Explainer解释
     """
@@ -132,7 +134,9 @@ def generate_acexplainer_subgraph(df_orbit,
         tau_c=TAU_C,
         device=device,
         gcn_layer=gcn_layer,
-        with_bias=with_bias
+        with_bias=with_bias,
+        test_mode=test_model,
+        heads=heads
     )
 
     # 8. 训练解释器
@@ -296,7 +300,7 @@ if __name__ == '__main__':
     dropout = DROPOUT
     lr = LEARNING_RATE
     weight_decay = WEIGHT_DECAY
-    with_bias = WITH_BIAS
+    with_bias = WITH_BIAS  if TEST_MODEL in ["GCN"] else None
     gcn_layer = GCN_LAYER
     attack_type = ATTACK_TYPE
     explanation_type = EXPLANATION_TYPE
@@ -304,6 +308,7 @@ if __name__ == '__main__':
     attack_budget_list = ATTACK_BUDGET_LIST
     explainer_method = "ACExplainer"
     top_t = MAX_ATTACK_NODES_NUM
+    heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer"] else None
 
     np.random.seed(SEED_NUM)
     torch.manual_seed(SEED_NUM)
@@ -389,7 +394,8 @@ if __name__ == '__main__':
                                                                         gnn_model,
                                                                         surrogate, pre_output, gcn_layer, attack_method,
                                                                         top_t,
-                                                                        device, nhid, dropout, with_bias)
+                                                                        device, nhid, dropout, with_bias, test_model,
+                                                                        heads_num)
         # print(cf_example)
         print("Time for {} epochs of one example: {:.4f}s".format(NUM_EPOCHS_AC, time_cost))
         time_list.append(time_cost)

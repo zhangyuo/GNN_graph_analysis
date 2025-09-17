@@ -12,10 +12,14 @@ from __future__ import division
 from __future__ import print_function
 import sys
 
+from torch_geometric.utils import dense_to_sparse
+
 from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANATION_TYPE, DATA_NAME, ATTACK_BUDGET_LIST, \
     TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α2, α3, \
-    TAU_C, LEARNING_RATE_AC, k
+    TAU_C, LEARNING_RATE_AC, k, HEADS_NUM
 from model.GCN import load_GCN_model
+from model.GraphConv import load_GraphConv_model
+from model.GraphTransformer import load_GraphTransforer_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
     BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset
 import numpy as np
@@ -45,8 +49,10 @@ weight_decay = WEIGHT_DECAY
 with_bias = WITH_BIAS
 device = DEVICE
 tau_c = TAU_C
+heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer"] else None
 
 np.random.seed(SEED_NUM)
+torch.manual_seed(SEED_NUM)
 
 ######################### loading deeprobust dataset  #########################
 data = None
@@ -87,15 +93,28 @@ else:
 
 ######################### Loading GCN model  #########################
 model_save_path = f'{base_path}/model_save/{test_model}/{dataset_name}/{gcn_layer}-layer/'
-file_path = os.path.join(model_save_path, 'gcn_model.pth')
-gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
-                           with_bias, gcn_layer)
-gnn_model.load_state_dict(torch.load(file_path))
-gnn_model.eval()
-
-dense_adj = torch.tensor(adj.toarray())
-norm_adj = normalize_adj(dense_adj)
-y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+if test_model == 'GCN':
+    file_path = os.path.join(model_save_path, 'gcn_model.pth')
+    gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
+                               with_bias, gcn_layer)
+    dense_adj = torch.tensor(adj.toarray())
+    norm_adj = normalize_adj(dense_adj)
+    y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+elif test_model == 'GraphTransformer':
+    file_path = os.path.join(model_save_path, 'graphTransformer_model.pth')
+    gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
+                                           heads_num)
+    dense_adj = torch.tensor(adj.toarray())
+    norm_adj = normalize_adj(dense_adj)
+    edge_index, edge_weight = dense_to_sparse(norm_adj)
+    y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
+elif test_model == 'GraphConv':
+    file_path = os.path.join(model_save_path, 'graphConv_model.pth')
+    gnn_model = load_GraphConv_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer)
+    dense_adj = torch.tensor(adj.toarray())
+    norm_adj = normalize_adj(dense_adj)
+    edge_index, edge_weight = dense_to_sparse(norm_adj)
+    y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
 ######################### select test nodes  #########################
 target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, y_pred_orig, labels)
@@ -108,8 +127,8 @@ header = ['success','target_node', 'new_idx', 'added_edges', 'removed_edges', 'e
           'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', "sub_labels"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-15'
-counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
+time_name = '2025-09-17'
+counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
         counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_seed{SEED_NUM}",
@@ -137,7 +156,11 @@ for i in df.index:
     edited_sub_adj = torch.tensor(df["cf_adj"][i])
     sub_feat = df["extended_feat"][i]
     edited_norm_adj = normalize_adj(edited_sub_adj)
-    new_label = gnn_model.forward(sub_feat, edited_norm_adj)
+    if test_model == "GCN":
+        new_label = gnn_model.forward(sub_feat, edited_norm_adj)
+    else:
+        edge_index, edge_weight = dense_to_sparse(edited_norm_adj)
+        new_label = gnn_model.forward(sub_feat, edge_index, edge_weight=edge_weight)
 
     # misclassification
     # if df["success"][i]:

@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
+from torch_geometric.utils import dense_to_sparse
 from tqdm import tqdm
 
 from utilty.utils import normalize_adj
@@ -51,8 +52,8 @@ class ACExplainer:
                  gcn_layer: int = 2,
                  with_bias: bool = True,
                  test_model: str = "GCN",
-                 heads: int = 2
-                 ):
+                 heads: int = 2,
+                 dataset_name: str = "cora"):
         # 将模型和数据移动到指定设备
         self.model = model.to(device)
         self.model.eval()
@@ -88,6 +89,7 @@ class ACExplainer:
         self.device = device
         self.gcn_layer = gcn_layer
         self.with_bias = with_bias
+        self.test_model = test_model
 
         # 创建扰动模型
         self.cf_model = GNNPerturb(
@@ -113,12 +115,14 @@ class ACExplainer:
             gcn_layer=gcn_layer,
             with_bias=with_bias,
             test_model=test_model,
-            heads=heads
+            heads=heads,
+            dataset_name=dataset_name
         ).to(device)
 
         # 继承原模型参数
         self.cf_model.load_state_dict(self.model.state_dict(), strict=False)
 
+        # if test_model == "GCN":
         # Freeze weights from original model in cf_model 冻结原始参数，仅训练扰动矩阵
         for name, param in self.cf_model.named_parameters():
             if name.endswith("weight") or name.endswith("bias"):
@@ -177,20 +181,26 @@ class ACExplainer:
 
             # 反向传播
             total_loss.backward()
+
+            # 检查掩码参数梯度
+            print("M.grad:", self.cf_model.get_mask_parameters().grad)
+            if self.cf_model.get_mask_parameters().grad is not None:
+                print(f"Mask grad norm: {self.cf_model.get_mask_parameters().grad.norm().item()}")
+
             clip_grad_norm_(self.cf_model.parameters(), 2.0)  # 裁剪梯度幅度
             self.cf_optimizer.step()
-            if epoch % 20 == 0:
-                print('Target node: {}'.format(self.target_node),
-                      'New idx: {}'.format(self.node_idx),
-                      'Epoch: {:04d}'.format(epoch + 1),
-                      'loss: {:.4f}'.format(total_loss.item()),
-                      'pred loss: {:.4f}'.format(pred_loss.item()),
-                      'dist loss: {:.4f}'.format(dist_loss.item()),
-                      'plau loss: {:.4f}'.format(plau_loss.item()))
-                print('Output: {}\n'.format(output[self.node_idx].data),
-                      'Output nondiff: {}\n'.format(output_actual[self.node_idx].data),
-                      'orig pred: {}, new pred: {}, new pred nondiff: {}'.format(self.y_pred_orig, y_pred_new,
-                                                                                 y_pred_new_actual))
+            # if epoch % 20 == 0:
+            print('Target node: {}'.format(self.target_node),
+                  'New idx: {}'.format(self.node_idx),
+                  'Epoch: {:04d}'.format(epoch + 1),
+                  'loss: {:.4f}'.format(total_loss.item()),
+                  'pred loss: {:.4f}'.format(pred_loss.item()),
+                  'dist loss: {:.4f}'.format(dist_loss.item()),
+                  'plau loss: {:.4f}'.format(plau_loss.item()))
+            print('Output: {}\n'.format(output[self.node_idx].data),
+                  'Output nondiff: {}\n'.format(output_actual[self.node_idx].data),
+                  'orig pred: {}, new pred: {}, new pred nondiff: {}'.format(self.y_pred_orig, y_pred_new,
+                                                                             y_pred_new_actual))
             print(" ")
             # 早停检查
             if y_pred_new_actual != self.y_pred_orig and total_loss.item() < best_loss:
@@ -285,7 +295,13 @@ class ACExplainer:
         )
         norm_adj = normalize_adj(perturbed_adj)
         with torch.no_grad():
-            output = self.model(self.sub_feat, norm_adj)
+            if self.test_model == "GCN":
+                output = self.model(self.sub_feat, norm_adj)
+            elif self.test_model in ["GraphTransformer", "GraphConv"]:
+                edge_index, edge_weight = dense_to_sparse(norm_adj)
+                output = self.model(self.sub_feat, edge_index, edge_weight=edge_weight)
+            else:
+                output = None
             return output[self.node_idx].argmax() != self.y_pred_orig
 
     def compute_edge_importance(self, delta_A: torch.Tensor) -> torch.Tensor:
@@ -325,5 +341,13 @@ class ACExplainer:
                 delta_A
             )
             norm_adj = normalize_adj(perturbed_adj)
-            output = self.model(self.sub_feat, norm_adj)
+
+            if self.test_model == "GCN":
+                output = self.model(self.sub_feat, norm_adj)
+            elif self.test_model in ["GraphTransformer", "GraphConv"]:
+                edge_index, edge_weight = dense_to_sparse(norm_adj)
+                output = self.model(self.sub_feat, edge_index, edge_weight=edge_weight)
+            else:
+                output = None
+
             return output[self.node_idx].argmax()

@@ -17,12 +17,14 @@ from datetime import datetime
 import torch
 import numpy as np
 from deeprobust.graph.data import Dataset
-from torch_geometric.utils import k_hop_subgraph, subgraph, to_dense_adj
+from torch_geometric.utils import k_hop_subgraph, subgraph, to_dense_adj, dense_to_sparse
 from tqdm import tqdm
 
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
 from config.config import *
 from explainer.cf_explanation.cf_explainer import CFExplainer
+from model.GraphConv import load_GraphConv_model
+from model.GraphTransformer import load_GraphTransforer_model
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
     TreeCyclesDataset, LoanDecisionDataset
@@ -51,7 +53,8 @@ def attack_cfexplanation_subgraph_generate(target_node_list, attack_subgraph, fe
 
 
 def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels, output, model, device, idx_test,
-                                  gcn_layer, with_bias, counterfactual_explanation_subgraph_path):
+                                  gcn_layer, with_bias, counterfactual_explanation_subgraph_path, test_model,
+                                  heads_num):
     start = time.time()
     sub_adj, sub_edge_index, sub_feat, sub_labels, node_dict = get_neighbourhood(target_node, edge_index,
                                                                                  features, labels, gcn_layer)
@@ -59,7 +62,11 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
     # sub_pyg_data = dr_data_to_pyg_data(sub_adj, sub_feat, sub_labels)
     print("Output original model, full adj: {}".format(output[target_node]))
     norm_sub_adj = normalize_adj(sub_adj)
-    print("Output original model, sub adj: {}".format(model.forward(sub_feat, norm_sub_adj)[new_idx]))
+    if test_model == "GCN":
+        print("Output original model, sub adj: {}".format(model.forward(sub_feat, norm_sub_adj)[new_idx]))
+    elif test_model in ["GraphTransformer", "GraphConv"]:
+        edge_index, edge_weight = dense_to_sparse(norm_sub_adj)
+        print("Output original model, sub adj: {}".format(model.forward(sub_feat, edge_index, edge_weight=edge_weight)[new_idx]))
     # output = gnn_model.predict(features=features, adj=modified_adj)
     # Need to instantitate new cf model every time because size of P changes based on size of sub_adj
     explainer = CFExplainer(model=model,
@@ -73,7 +80,9 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
                             beta=BETA,
                             device=device,
                             gcn_layer=gcn_layer,
-                            with_bias=with_bias)
+                            with_bias=with_bias,
+                            test_model=test_model,
+                            heads=heads_num)
     if device == 'cuda':
         model.cuda()
         explainer.cf_model.cuda()
@@ -138,13 +147,14 @@ if __name__ == '__main__':
     attack_method = ATTACK_METHOD
     attack_budget_list = ATTACK_BUDGET_LIST
     explainer_method = "CFExplainer"
+    heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer"] else None
 
     np.random.seed(SEED_NUM)
     torch.manual_seed(SEED_NUM)
 
     time_name = datetime.now().strftime("%Y-%m-%d")
     # counterfactual explanation subgraph path
-    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
+    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
     if not os.path.exists(counterfactual_explanation_subgraph_path):
         os.makedirs(counterfactual_explanation_subgraph_path)
 
@@ -191,18 +201,36 @@ if __name__ == '__main__':
 
     ######################### Loading GCN model  #########################
     model_save_path = f'{base_path}/model_save/{test_model}/{dataset_name}/{gcn_layer}-layer/'
-    file_path = os.path.join(model_save_path, 'gcn_model.pth')
-    gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
-                               with_bias, gcn_layer)
-    dense_adj = torch.tensor(adj.toarray())
-    norm_adj = normalize_adj(dense_adj)
-    pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+
+    if test_model == 'GCN':
+        file_path = os.path.join(model_save_path, 'gcn_model.pth')
+        gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
+                                   with_bias, gcn_layer)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+    elif test_model == 'GraphTransformer':
+        file_path = os.path.join(model_save_path, 'graphTransformer_model.pth')
+        gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
+                                               heads_num)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
+    elif test_model == 'GraphConv':
+        file_path = os.path.join(model_save_path, 'graphConv_model.pth')
+        gnn_model = load_GraphConv_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
+    # target_node_list = target_node_list[101:110]
 
     ######################### GNN explainer generate  #########################
     # Get CF examples in test set
@@ -217,7 +245,8 @@ if __name__ == '__main__':
                                                                         pre_output,
                                                                         gnn_model, device, idx_test, gcn_layer,
                                                                         with_bias,
-                                                                        counterfactual_explanation_subgraph_path)
+                                                                        counterfactual_explanation_subgraph_path,
+                                                                        test_model, heads_num)
         print("Time for {} epochs of one example: {:.4f}s".format(NUM_EPOCHS, time_cost))
         time_list.append(time_cost)
         cfexp_subgraph[target_node] = subgraph

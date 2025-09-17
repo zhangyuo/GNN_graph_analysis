@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from deeprobust.graph.defense import GraphConvolution
 from torch.nn.parameter import Parameter
+from torch_geometric.nn import TransformerConv, GraphConv
 from torch_geometric.utils import dense_to_sparse, to_dense_adj
 from utilty.utils import get_degree_matrix, create_symm_matrix_from_vec, create_vec_from_symm_matrix
 
@@ -13,7 +14,7 @@ class GCNCoraPerturb(nn.Module):
     2-layer GCN used in GNN Explainer cora tasks
     """
 
-    def __init__(self, nfeat, nhid, nclass, adj, dropout, beta,gcn_layer, with_bias, edge_additions=False):
+    def __init__(self, nfeat, nhid, nclass, adj, dropout, beta,gcn_layer, with_bias, test_model, heads, edge_additions=False):
         super(GCNCoraPerturb, self).__init__()
         self.adj = adj
         self.nclass = nclass
@@ -21,6 +22,8 @@ class GCNCoraPerturb(nn.Module):
         self.num_nodes = self.adj.shape[0]
         self.gcn_layer = gcn_layer
         self.edge_additions = edge_additions  # are edge additions included in perturbed matrix
+        self.heads = heads
+        self.model_name = test_model
 
         # P_hat needs to be symmetric ==> learn vector representing entries in upper/lower triangular matrix and use to populate P_hat later
         self.P_vec_size = int((self.num_nodes * self.num_nodes - self.num_nodes) / 2) + self.num_nodes  # # 上三角元素数量
@@ -31,18 +34,33 @@ class GCNCoraPerturb(nn.Module):
             self.P_vec = Parameter(torch.FloatTensor(torch.ones(self.P_vec_size)))
         self.reset_parameters()
 
-        if self.gcn_layer == 3:
-            self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
-            self.gc2 = GraphConvolution(nhid, nhid, with_bias=with_bias)
-            self.gc3 = GraphConvolution(nhid, nclass, with_bias=with_bias)
-            self.lin = nn.Linear(nhid + nhid + nclass, nclass)
-        else:
-            self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
-            self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
+        if self.model_name == "GCN":
+            if self.gcn_layer == 3:
+                self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
+                self.gc2 = GraphConvolution(nhid, nhid, with_bias=with_bias)
+                self.gc3 = GraphConvolution(nhid, nclass, with_bias=with_bias)
+                self.lin = nn.Linear(nhid + nhid + nclass, nclass)
+            else:
+                self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
+                self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
+        elif self.model_name == "GraphTransformer":
+            self.layers = nn.ModuleList()
+            self.layers.append(TransformerConv(nfeat, nhid, heads=heads, dropout=dropout, edge_dim=1))
+            for _ in range(self.gcn_layer - 2):
+                self.layers.append(
+                    TransformerConv(nhid * heads, nhid, heads=heads, dropout=dropout, edge_dim=1))
+            self.layers.append(TransformerConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
+        elif self.model_name == "GraphConv":
+            self.layers = nn.ModuleList()
+            self.layers.append(GraphConv(nfeat, nhid, aggr="add"))
+            for _ in range(self.gcn_layer - 2):
+                self.layers.append(GraphConv(nhid, nhid, aggr="add"))
+            self.layers.append(GraphConv(nhid, nclass, aggr="add"))
         self.dropout = dropout
 
     def reset_parameters(self, eps=10 ** -4):
         # Think more about how to initialize this
+        # eps = 20
         with torch.no_grad():
             if self.edge_additions:
                 adj_vec = create_vec_from_symm_matrix(self.adj, self.P_vec_size).numpy()
@@ -54,6 +72,13 @@ class GCNCoraPerturb(nn.Module):
                 torch.add(self.P_vec, torch.FloatTensor(adj_vec))  # self.P_vec is all 0s
             else:
                 torch.sub(self.P_vec, eps)
+                # init_range = 0.9
+                # min_value = 0.1
+                # self.P_vec.data.uniform_(min_value, init_range)
+
+    def get_mask_parameters(self) -> nn.Parameter:
+        """获取可训练的掩码参数"""
+        return self.P_vec
 
     def forward(self, x, sub_adj):
         self.sub_adj = sub_adj
@@ -78,19 +103,32 @@ class GCNCoraPerturb(nn.Module):
         # Create norm_adj = (D + I)^(-1/2) * (A + I) * (D + I) ^(-1/2)
         norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)  # 归一化邻接矩阵
 
-        if self.gcn_layer == 3:
-            x1 = F.relu(self.gc1(x, norm_adj))
-            x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = F.relu(self.gc2(x1, norm_adj))
-            x2 = F.dropout(x2, self.dropout, training=self.training)
-            x3 = self.gc3(x2, norm_adj)
-            x = self.lin(torch.cat((x1, x2, x3), dim=1))
+        if self.model_name == "GCN":
+            if self.gcn_layer == 3:
+                x1 = F.relu(self.gc1(x, norm_adj))
+                x1 = F.dropout(x1, self.dropout, training=self.training)
+                x2 = F.relu(self.gc2(x1, norm_adj))
+                x2 = F.dropout(x2, self.dropout, training=self.training)
+                x3 = self.gc3(x2, norm_adj)
+                x = self.lin(torch.cat((x1, x2, x3), dim=1))
+                return F.log_softmax(x, dim=1)
+            else:
+                x1 = F.relu(self.gc1(x, norm_adj))
+                x1 = F.dropout(x1, self.dropout, training=self.training)
+                x2 = self.gc2(x1, norm_adj)
+                return F.log_softmax(x2, dim=1)
+        elif self.model_name in ["GraphTransformer", "GraphConv"]:
+            edge_index, edge_weight = dense_to_sparse(norm_adj)
+            edge_index = edge_index.to(x.device)
+            edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
+            edge_attr.requires_grad_(True)
+            for conv in self.layers[:-1]:
+                x = conv(x, edge_index, edge_attr)
+                x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
+            # 最后一层
+            x = self.layers[-1](x, edge_index, edge_attr)
             return F.log_softmax(x, dim=1)
-        else:
-            x1 = F.relu(self.gc1(x, norm_adj))
-            x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = self.gc2(x1, norm_adj)
-            return F.log_softmax(x2, dim=1)
 
     def forward_prediction(self, x):
         # Same as forward but uses P instead of P_hat ==> non-differentiable
@@ -111,19 +149,31 @@ class GCNCoraPerturb(nn.Module):
         # Create norm_adj = (D + I)^(-1/2) * (A + I) * (D + I) ^(-1/2)
         norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)
 
-        if self.gcn_layer == 3:
-            x1 = F.relu(self.gc1(x, norm_adj))
-            x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = F.relu(self.gc2(x1, norm_adj))
-            x2 = F.dropout(x2, self.dropout, training=self.training)
-            x3 = self.gc3(x2, norm_adj)
-            x = self.lin(torch.cat((x1, x2, x3), dim=1))
+        if self.model_name == "GCN":
+            if self.gcn_layer == 3:
+                x1 = F.relu(self.gc1(x, norm_adj))
+                x1 = F.dropout(x1, self.dropout, training=self.training)
+                x2 = F.relu(self.gc2(x1, norm_adj))
+                x2 = F.dropout(x2, self.dropout, training=self.training)
+                x3 = self.gc3(x2, norm_adj)
+                x = self.lin(torch.cat((x1, x2, x3), dim=1))
+                return F.log_softmax(x, dim=1), self.P
+            else:
+                x1 = F.relu(self.gc1(x, norm_adj))
+                x1 = F.dropout(x1, self.dropout, training=self.training)
+                x2 = self.gc2(x1, norm_adj)
+                return F.log_softmax(x2, dim=1), self.P
+        elif self.model_name in ["GraphTransformer", "GraphConv"]:
+            edge_index, edge_weight = dense_to_sparse(norm_adj)
+            edge_index = edge_index.to(x.device)
+            edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
+            for conv in self.layers[:-1]:
+                x = conv(x, edge_index, edge_attr)
+                x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
+            # 最后一层
+            x = self.layers[-1](x, edge_index, edge_attr)
             return F.log_softmax(x, dim=1), self.P
-        else:
-            x1 = F.relu(self.gc1(x, norm_adj))
-            x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = self.gc2(x1, norm_adj)
-            return F.log_softmax(x2, dim=1), self.P
 
     def loss(self, output, y_pred_orig, y_pred_new_actual):
         """

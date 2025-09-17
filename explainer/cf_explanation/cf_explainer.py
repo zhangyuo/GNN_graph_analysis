@@ -21,7 +21,7 @@ class CFExplainer:
     """
 
     def __init__(self, model, sub_adj, sub_feat, n_hid, dropout,
-                 sub_labels, y_pred_orig, num_classes, beta, device, gcn_layer,with_bias):
+                 sub_labels, y_pred_orig, num_classes, beta, device, gcn_layer,with_bias, test_model, heads):
         super(CFExplainer, self).__init__()
         self.model = model
         self.model.eval()
@@ -36,10 +36,12 @@ class CFExplainer:
         self.device = device
         self.gcn_layer=gcn_layer
         self.with_bias = with_bias
+        self.heads = heads
+        self.test_model = test_model
 
         # Instantiate CF model class, load weights from original model
         self.cf_model = GCNCoraPerturb(self.sub_feat.shape[1], n_hid, self.num_classes, self.sub_adj, dropout, beta,
-                                       gcn_layer, with_bias=with_bias)  # 加载可扰动模型
+                                       gcn_layer, with_bias=with_bias, test_model=test_model, heads=heads)  # 加载可扰动模型
 
         self.cf_model.load_state_dict(self.model.state_dict(), strict=False)  # 继承原模型参数
 
@@ -109,6 +111,12 @@ class CFExplainer:
         loss_total, loss_pred, loss_graph_dist, cf_adj = self.cf_model.loss(output[self.new_idx], self.y_pred_orig,
                                                                             y_pred_new_actual)  # 计算复合损失
         loss_total.backward()  # 计算当前梯度
+
+        # 检查掩码参数梯度
+        # print("P_vec.grad:", self.cf_model.get_mask_parameters().grad)
+        if self.cf_model.get_mask_parameters().grad is not None:
+            print(f"Mask grad norm: {self.cf_model.get_mask_parameters().grad.norm().item()}")
+
         clip_grad_norm(self.cf_model.parameters(), 2.0) # 裁剪梯度幅度
         self.cf_optimizer.step() # 根据梯度更新参数
         print('Node idx: {}'.format(self.node_idx),

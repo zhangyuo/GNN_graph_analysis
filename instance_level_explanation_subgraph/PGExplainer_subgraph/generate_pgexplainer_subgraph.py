@@ -14,13 +14,13 @@ from collections import defaultdict
 
 import numpy as np
 import torch
-from torch_geometric.utils import add_self_loops, k_hop_subgraph
+from torch_geometric.utils import add_self_loops, k_hop_subgraph, dense_to_sparse
 from torch_sparse import SparseTensor
 from utilty.explanation_visualization import explanation_subgraph_visualization
 from utilty.utils import normalize_adj
 
 
-def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer, gnn_model, pre_output, dataset_name):
+def generate_pgexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_data, explainer, gnn_model, pre_output, dataset_name):
     start_time = time.time()
     # generate explanation for target node from specified explainer
     subset, edge_index_sub, mapping, _ = k_hop_subgraph(
@@ -54,13 +54,24 @@ def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer
     # 目标节点的新ID
     target_new_id = full_mapping[target_node]  # 若 node_idx 是单个节点
 
-    # 执行解释
-    explanation = explainer(
-        x=x_sub,
-        edge_index=edge_index_sub,
-        target=pyg_data.y.to(torch.long),
-        index=target_new_id
-    )
+    if test_model == "GCN":
+        # 执行解释
+        explanation = explainer(
+            x=x_sub,
+            edge_index=edge_index_sub,
+            target=pyg_data.y.to(torch.long),
+            index=target_new_id
+        )
+    else:
+        norm_adj = normalize_adj(sub_adj)
+        edge_index_sub_new, edge_weight = dense_to_sparse(norm_adj)
+        explanation = explainer(
+            x=x_sub,
+            edge_index=edge_index_sub_new,
+            edge_weight=edge_weight,
+            target=pyg_data.y.to(torch.long),
+            index=target_new_id
+        )
 
     # get mask of edges
     edge_mask = explanation.edge_mask
@@ -100,7 +111,11 @@ def generate_pgexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer
         explanation_size += 1
         removed_edges.append((u, v))
         norm_adj = normalize_adj(cf_adj)
-        y_new_output = gnn_model.forward(x_sub, norm_adj)
+        if test_model == "GCN":
+            y_new_output = gnn_model.forward(x_sub, norm_adj)
+        else:
+            edge_index, edge_weight = dense_to_sparse(norm_adj)
+            y_new_output = gnn_model.forward(x_sub, edge_index, edge_weight=edge_weight)
         new_idx_label = y_new_output[target_new_id].argmax().item()
         if new_idx_label != target_node_label:
             print("find counterfactual explanation")

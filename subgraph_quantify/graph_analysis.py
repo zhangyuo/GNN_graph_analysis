@@ -38,13 +38,13 @@ from subgraph_quantify.structual_similarity.maximum_commom_subgraph import maxim
 from utilty.attack_visualization import visualize_attack_subgraph, generate_timestamp_key
 from torch_geometric.data import Data
 from torch_geometric.explain import Explainer, GNNExplainer, PGExplainer
-from torch_geometric.utils import from_networkx, subgraph
+from torch_geometric.utils import from_networkx, subgraph, dense_to_sparse
 from torch_geometric.transforms import RandomNodeSplit
 
 from utilty.clean_subgraph_visualization import visualize_restricted_clean_subgraph
 from utilty.maximum_common_graph_visualization import mx_com_graph_view
 from config.config import HIDDEN_CHANNELS, DROPOUT, WITH_BIAS, DEVICE, GCN_LAYER
-from utilty.utils import select_test_nodes
+from utilty.utils import select_test_nodes, normalize_adj
 
 
 def evasion_test_acc_GCN(gnn_model, modified_adj, features, data, target_node):
@@ -330,8 +330,11 @@ def generate_subgraph(attack_type, explanation_type, target_node_list, gnn_model
     return subgraph_data
 
 
-def gnn_explainer_generate(gnn_model, device, features, labels, gcn_layer):
-    pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
+def gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer):
+    if test_model == "GCN":
+        pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
+    else:
+        pyg_gcn = gnn_model
 
     # Create explainer (using PyG-formatted data)
     explainer = Explainer(
@@ -354,8 +357,11 @@ def gnn_explainer_generate(gnn_model, device, features, labels, gcn_layer):
     return explainer
 
 
-def pg_explainer_generate(gnn_model, device, features, labels, gcn_layer, pyg_data):
-    pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
+def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer, pyg_data, data):
+    if test_model == "GCN":
+        pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
+    else:
+        pyg_gcn = gnn_model
     # transform = RandomNodeSplit(split='train_rest', num_val=0.2, num_test=0.2)
     # pyg_data = transform(pyg_data)
 
@@ -391,6 +397,13 @@ def pg_explainer_generate(gnn_model, device, features, labels, gcn_layer, pyg_da
     if len(train_indices) == 0:
         raise ValueError("没有找到有效的训练节点（所有训练节点可能都是孤立的）")
 
+    if test_model == "GCN":
+        edge_index = pyg_data.edge_index
+    else:
+        dense_adj = torch.tensor(data.adj.toarray(), device=device)
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+
     for epoch in tqdm(range(30)):
         for index in train_indices:
             # Calculate the loss for each node and update the parameters of PGExplainer
@@ -400,7 +413,8 @@ def pg_explainer_generate(gnn_model, device, features, labels, gcn_layer, pyg_da
                 epoch,
                 pyg_gcn,
                 pyg_data.x,
-                pyg_data.edge_index,
+                edge_index,
+                edge_weight=edge_weight if test_model!="GCN" else None,
                 target=pyg_data.y.to(torch.long),
                 index=index_tensor  # 传入标量
             )

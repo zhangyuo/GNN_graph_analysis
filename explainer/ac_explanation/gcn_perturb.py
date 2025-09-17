@@ -17,7 +17,7 @@ import numpy as np
 
 from utilty.utils import normalize_adj, get_degree_matrix, compute_deg_diff, compute_motif_viol, compute_feat_sim
 from config.config import TEST_MODEL
-from torch_geometric.nn import GINConv, SAGEConv, APPNP, GraphConv, TransformerConv
+from torch_geometric.nn import GINConv, SAGEConv, APPNP, GraphConv, TransformerConv, GATConv
 from torch.nn import Linear, Sequential, BatchNorm1d, ReLU, Dropout
 from torch_geometric.utils import dense_to_sparse
 
@@ -29,7 +29,9 @@ class SignedMaskPerturbation(nn.Module):
                  node_num_l_hop: list,
                  top_k: int = 5,
                  tau_plus: float = 0.5,
-                 tau_minus: float = -0.5):
+                 tau_minus: float = -0.5,
+                 test_model: str = "GCN",
+                 dataset_name: str = "cora"):
         """
         AC-Explainer的带符号掩码扰动模块
         参数:
@@ -49,6 +51,8 @@ class SignedMaskPerturbation(nn.Module):
         self.n_nodes = extended_sub_adj.size(0)  # 扩展子图中的节点数
         self.plan_added_node_idx = []
         self.plan_deleted_node_idx = []
+        self.test_model = test_model
+        self.dataset_name = dataset_name
 
         # 初始化带符号的掩码参数
         self.M = self._initialize_mask()
@@ -65,7 +69,13 @@ class SignedMaskPerturbation(nn.Module):
 
         # 遍历extended_sub_adj中所有现有边
         # sub_adj = self.extended_sub_adj[lhop_node_index, :][:, lhop_node_index]
-        init_value = -0.5
+        init_value = -0.8  # GCN:-0.5 GraphConv:-1.0 GraphTransformer: -0.8
+        init_value = {
+            "GCN": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5},
+            "GraphTransformer": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8},
+            "GraphConv": {"cora": -1.0, "BA-SHAPES": -1.0, "TREE-CYCLES": -1.0, "Loan-Decision": -1.0},
+            "GAT": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5}
+        }[self.test_model][self.dataset_name]
         ones_indices = torch.nonzero(self.extended_sub_adj == 1)
         non_diagonal_ones = ones_indices[ones_indices[:, 0] != ones_indices[:, 1]].tolist()
         for i in range(len(non_diagonal_ones)):
@@ -76,7 +86,13 @@ class SignedMaskPerturbation(nn.Module):
                 self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i]])
                 mask_index += 1
         # 遍历所有attack_nodes，针对无现有边场景倾向添加，但需要抑制加边
-        init_value = 0.4
+        init_value = 0.8  # GCN：0.4 GraphConv:0.55 GraphTransformer: 0.8
+        init_value = {
+            "GCN": {"cora": 0.4, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.4, "Loan-Decision": 0.4},
+            "GraphTransformer": {"cora": 0.8, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8},
+            "GraphConv": {"cora": 0.55, "BA-SHAPES": 0.55, "TREE-CYCLES": 0.55, "Loan-Decision": 0.55},
+            "GAT": {"cora": 0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": 0.5, "Loan-Decision": 0.5}
+        }[self.test_model][self.dataset_name]
         for i in attack_nodes_idx:
             if i != self.node_idx:
                 mask_init_values.append(init_value)
@@ -103,6 +119,8 @@ class SignedMaskPerturbation(nn.Module):
         #         mask_index += 1
 
         # 转换为可训练参数--将列表转换为PyTorch张量，并封装为可学习参数(Parameter)
+
+        # mask_init_values = torch.randn(len(mask_init_values))
         return nn.Parameter(torch.tensor(mask_init_values, dtype=torch.float32))
 
     def _apply_discretization(self, M_e: torch.Tensor) -> torch.Tensor:
@@ -228,7 +246,8 @@ class GNNPerturb(nn.Module):
                  gcn_layer: int = 2,
                  with_bias: bool = True,
                  test_model: str = "GCN",
-                 heads: int = 2):
+                 heads: int = 2,
+                 dataset_name: str = "cora"):
         super().__init__()
 
         self.gcn_layer = gcn_layer
@@ -252,7 +271,7 @@ class GNNPerturb(nn.Module):
         # 扰动层
         print(f"Input extended_sub_adj.requires_grad: {extended_sub_adj.requires_grad}")
         self.perturb_layer = SignedMaskPerturbation(extended_sub_adj, node_idx, node_num_l_hop, top_k, tau_plus,
-                                                    tau_minus)
+                                                    tau_minus, test_model, dataset_name)
 
         # GCN层定义
         if self.model_name == "GCN":
@@ -264,12 +283,19 @@ class GNNPerturb(nn.Module):
             else:
                 self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
                 self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
-        elif self.model_name == "GarphTransformer":
+        elif self.model_name == "GraphTransformer":
+            self.layers = nn.ModuleList()
             self.layers.append(TransformerConv(nfeat, nhid, heads=heads, dropout=dropout, edge_dim=1))
             for _ in range(self.gcn_layer - 2):
                 self.layers.append(
                     TransformerConv(nhid * heads, nhid, heads=heads, dropout=dropout, edge_dim=1))
             self.layers.append(TransformerConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
+        elif self.model_name == "GraphConv":
+            self.layers = nn.ModuleList()
+            self.layers.append(GraphConv(nfeat, nhid, aggr="add"))
+            for _ in range(self.gcn_layer - 2):
+                self.layers.append(GraphConv(nhid, nhid, aggr="add"))
+            self.layers.append(GraphConv(nhid, nclass, aggr="add"))
 
     def forward(self, x: torch.Tensor, sub_adj: torch.Tensor) -> torch.Tensor:
         """训练模式：使用连续扰动矩阵"""
@@ -280,7 +306,8 @@ class GNNPerturb(nn.Module):
         A_tilde.requires_grad = True
 
         # Use tanh to bound full mask in [-1,1]
-        perturbed_adj = self.perturb_layer.ste_perturbed_adj(self.sub_adj, self.full_mask)
+        scale = 1.0
+        perturbed_adj = self.perturb_layer.ste_perturbed_adj(self.sub_adj, scale * self.full_mask)
         A_tilde = perturbed_adj + torch.eye(self.num_nodes)
 
         D_tilde = get_degree_matrix(A_tilde).detach()  # Don't need gradient of this 度矩阵
@@ -325,21 +352,59 @@ class GNNPerturb(nn.Module):
                 x1 = F.dropout(x1, self.dropout, training=self.training)
                 x2 = self.gc2(x1, norm_adj)
                 return F.log_softmax(x2, dim=1)
-        elif self.model_name == "GarphTransformer":
+        elif self.model_name in ["GraphTransformer", "GraphConv"]:
+            # # 1. 固定 edge_index（从 extended_sub_adj 提取一次即可，不要每次 dense_to_sparse）
+            # # if not hasattr(self, "edge_index_base"):
+            # self.edge_index_base, _ = dense_to_sparse(norm_adj)
+            # self.edge_index_base = self.edge_index_base.to(x.device)
+            # # 2. 从 norm_adj 里取出对应边的权重，作为 edge_weight
+            # edge_weight = norm_adj[self.edge_index_base[0], self.edge_index_base[1]]
+            # edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
+            # # 3. 送入 TransformerConv
+            # for conv in self.layers[:-1]:
+            #     x = conv(x, self.edge_index_base, edge_attr)
+            #     x = F.relu(x)
+            #     x = F.dropout(x, p=self.dropout, training=self.training)
+            # # 最后一层
+            # x = self.layers[-1](x, self.edge_index_base, edge_attr)
+            # return F.log_softmax(x, dim=1)
+
             edge_index, edge_weight = dense_to_sparse(norm_adj)
-            if edge_weight is not None:
-                edge_attr = edge_weight.view(-1, 1)  # 变成 [num_edges, 1]
-            else:
-                edge_attr = None
-            edge_weight = edge_attr
-            for conv in self.gcn_layer[:-1]:
-                x = conv(x, edge_index, edge_weight)
+            edge_index = edge_index.to(x.device)
+            edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
+            edge_attr.requires_grad_(True)
+            for conv in self.layers[:-1]:
+                x = conv(x, edge_index, edge_attr)
                 x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
             # 最后一层
-            x = self.layers[-1](x, edge_index, edge_weight)
+            x = self.layers[-1](x, edge_index, edge_attr)
             return F.log_softmax(x, dim=1)
 
+            # # 确保norm_adj的梯度不会丢失
+            # norm_adj.requires_grad_(True)
+            #
+            # # 创建一个可微的稀疏表示
+            # # 获取非零元素的位置和值
+            # n = norm_adj.size(0)
+            # indices = torch.nonzero(norm_adj > 1e-5).t()  # 使用小的阈值而不是0
+            # values = norm_adj[indices[0], indices[1]]
+            #
+            # # 确保梯度能够通过values传播
+            # values.requires_grad_(True)
+            #
+            # # 创建稀疏张量（保持梯度）
+            # edge_index = indices
+            # edge_weight = values
+            #
+            # # 确保所有层都使用正确的edge_index和edge_attr
+            # for conv in self.layers[:-1]:
+            #     x = conv(x, edge_index, edge_weight.unsqueeze(1))
+            #     x = F.relu(x)
+            #     x = F.dropout(x, p=self.dropout, training=self.training)
+            # # 最后一层
+            # x = self.layers[-1](x, edge_index, edge_weight.unsqueeze(1))
+            # return F.log_softmax(x, dim=1)
     def get_mask_parameters(self) -> nn.Parameter:
         """获取可训练的掩码参数"""
         return self.perturb_layer.M
@@ -355,7 +420,17 @@ class GNNPerturb(nn.Module):
             output[self.node_idx].unsqueeze(0),
             y_pred_orig.unsqueeze(0)
         ) * (y_pred_new_actual == y_pred_orig.unsqueeze(0)).float()
-        # pred_loss = - F.cross_entropy(output[self.node_idx].unsqueeze(0), self.y_pred_orig.unsqueeze(0))
+        # pred_loss = F.cross_entropy(output[self.node_idx].unsqueeze(0), y_pred_orig.unsqueeze(0))
+        # # 添加鼓励预测改变的项，使用更激进的策略
+        # if y_pred_new_actual == y_pred_orig:
+        #     # 如果预测没有改变，增加更大的损失以鼓励改变
+        #     pred_loss += 5.0 * pred_loss
+        # # 添加注意力一致性损失，鼓励注意力权重的稀疏性
+        # attention_loss = 0
+        # for name, module in self.named_modules():
+        #     if hasattr(module, 'att') and module.att is not None:
+        #         # 鼓励注意力权重稀疏化
+        #         attention_loss += torch.mean(torch.abs(module.att.weight))
 
         # 稀疏损失 (L0范数)
         cf_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)

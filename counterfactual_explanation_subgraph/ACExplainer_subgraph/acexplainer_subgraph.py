@@ -13,9 +13,14 @@ import pickle
 import sys
 import warnings
 
-from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
+from model.GraphConv import load_GraphConv_model
 
 warnings.filterwarnings("ignore")
+res = os.path.abspath(__file__)  # acquire absolute path of current file
+base_path = os.path.dirname(
+    os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
+sys.path.insert(0, base_path)
+
 import time
 from datetime import datetime
 
@@ -23,7 +28,7 @@ import torch
 import numpy as np
 from deeprobust.graph.data import Dataset
 import networkx as nx
-from torch_geometric.utils import k_hop_subgraph, to_dense_adj
+from torch_geometric.utils import k_hop_subgraph, to_dense_adj, dense_to_sparse
 from tqdm import tqdm
 
 from attack.GOttack.OrbitAttack import OrbitAttack
@@ -35,6 +40,9 @@ from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
     TreeCyclesDataset, LoanDecisionDataset
 import torch.nn.functional as F
+from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
+from model.GraphTransformer import load_GraphTransforer_model
+from deeprobust.graph.defense import GCN
 
 
 def generate_acexplainer_subgraph(df_orbit,
@@ -52,7 +60,8 @@ def generate_acexplainer_subgraph(df_orbit,
                                   dropout: float = 0.5,
                                   with_bias: bool = True,
                                   test_model: str = "GCN",
-                                  heads: int = 2):
+                                  heads: int = 2,
+                                  dataset_name: str = "cora"):
     """
     生成AC-Explainer解释
     """
@@ -135,8 +144,9 @@ def generate_acexplainer_subgraph(df_orbit,
         device=device,
         gcn_layer=gcn_layer,
         with_bias=with_bias,
-        test_mode=test_model,
-        heads=heads
+        test_model=test_model,
+        heads=heads,
+        dataset_name=dataset_name
     )
 
     # 8. 训练解释器
@@ -287,10 +297,6 @@ def networkx_create_extended_adj(extended_nodes, edge_index):
 
 
 if __name__ == '__main__':
-    res = os.path.abspath(__file__)  # acquire absolute path of current file
-    base_path = os.path.dirname(
-        os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
-    sys.path.insert(0, base_path)
 
     ######################### initialize random state  #########################
     dataset_name = DATA_NAME
@@ -300,7 +306,7 @@ if __name__ == '__main__':
     dropout = DROPOUT
     lr = LEARNING_RATE
     weight_decay = WEIGHT_DECAY
-    with_bias = WITH_BIAS  if TEST_MODEL in ["GCN"] else None
+    with_bias = WITH_BIAS
     gcn_layer = GCN_LAYER
     attack_type = ATTACK_TYPE
     explanation_type = EXPLANATION_TYPE
@@ -315,7 +321,7 @@ if __name__ == '__main__':
 
     time_name = datetime.now().strftime("%Y-%m-%d")
     # counterfactual explanation subgraph path
-    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
+    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
     if not os.path.exists(counterfactual_explanation_subgraph_path):
         os.makedirs(counterfactual_explanation_subgraph_path)
 
@@ -362,12 +368,29 @@ if __name__ == '__main__':
 
     ######################### Loading GCN model  #########################
     model_save_path = f'{base_path}/model_save/{test_model}/{dataset_name}/{gcn_layer}-layer/'
-    file_path = os.path.join(model_save_path, 'gcn_model.pth')
-    gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
-                               with_bias, gcn_layer)
-    dense_adj = torch.tensor(adj.toarray())
-    norm_adj = normalize_adj(dense_adj)
-    pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+
+    if test_model == 'GCN':
+        file_path = os.path.join(model_save_path, 'gcn_model.pth')
+        gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
+                                   with_bias, gcn_layer)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+    elif test_model == 'GraphTransformer':
+        file_path = os.path.join(model_save_path, 'graphTransformer_model.pth')
+        gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
+                                               heads_num)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
+    elif test_model == 'GraphConv':
+        file_path = os.path.join(model_save_path, 'graphConv_model.pth')
+        gnn_model = load_GraphConv_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
     if gcn_layer != 2:
         # surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # 代理损失:gnn model
@@ -375,11 +398,24 @@ if __name__ == '__main__':
     else:
         surrogate = gnn_model
 
+    if test_model != "GCN":
+        file_path = base_path + "/model_save/surrogate/"
+        if os.path.exists(file_path):
+            surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item() + 1, nhid=16, dropout=0,
+                            with_relu=False, with_bias=False, device=device)
+            surrogate.load_state_dict(torch.load(file_path + 'surrogate.model', map_location=device))
+            surrogate.to(device)
+        else:
+            os.makedirs(file_path)
+            surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)
+            torch.save(surrogate.state_dict(), file_path + 'surrogate.model')
+
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
+    # target_node_list = target_node_list[101:110]
 
     ######################### GNN explainer generate  #########################
     df_orbit = OrbitTableGenerator(dataset_name).generate_orbit_table()
@@ -395,7 +431,7 @@ if __name__ == '__main__':
                                                                         surrogate, pre_output, gcn_layer, attack_method,
                                                                         top_t,
                                                                         device, nhid, dropout, with_bias, test_model,
-                                                                        heads_num)
+                                                                        heads_num, dataset_name)
         # print(cf_example)
         print("Time for {} epochs of one example: {:.4f}s".format(NUM_EPOCHS_AC, time_cost))
         time_list.append(time_cost)

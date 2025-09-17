@@ -13,6 +13,11 @@ import pickle
 import sys
 import warnings
 
+from torch_geometric.utils import dense_to_sparse
+
+from model.GraphConv import load_GraphConv_model
+from model.GraphTransformer import load_GraphTransforer_model
+
 warnings.filterwarnings("ignore")
 import time
 from datetime import datetime
@@ -50,13 +55,14 @@ if __name__ == '__main__':
     attack_method = ATTACK_METHOD
     attack_budget_list = ATTACK_BUDGET_LIST
     explainer_method = "GNNExplainer"
+    heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer"] else None
 
     np.random.seed(SEED_NUM)
     torch.manual_seed(SEED_NUM)
 
     time_name = datetime.now().strftime("%Y-%m-%d")
     # counterfactual explanation subgraph path
-    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
+    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
     if not os.path.exists(counterfactual_explanation_subgraph_path):
         os.makedirs(counterfactual_explanation_subgraph_path)
 
@@ -103,21 +109,38 @@ if __name__ == '__main__':
 
     ######################### Loading GCN model  #########################
     model_save_path = f'{base_path}/model_save/{test_model}/{dataset_name}/{gcn_layer}-layer/'
-    file_path = os.path.join(model_save_path, 'gcn_model.pth')
-    gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
-                               with_bias, gcn_layer)
-    dense_adj = torch.tensor(adj.toarray())
-    norm_adj = normalize_adj(dense_adj)
-    pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+    if test_model == 'GCN':
+        file_path = os.path.join(model_save_path, 'gcn_model.pth')
+        gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
+                                   with_bias, gcn_layer)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+    elif test_model == 'GraphTransformer':
+        file_path = os.path.join(model_save_path, 'graphTransformer_model.pth')
+        gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
+                                               heads_num)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
+    elif test_model == 'GraphConv':
+        file_path = os.path.join(model_save_path, 'graphConv_model.pth')
+        gnn_model = load_GraphConv_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
+    # target_node_list = target_node_list[101:110]
 
     ######################### GNN explainer generate  #########################
-    explainer = gnn_explainer_generate(gnn_model, device, features, labels, gcn_layer)
+    explainer = gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer)
 
     ######################### GNN explainer generate  #########################
     # Get CF examples in test set
@@ -127,7 +150,7 @@ if __name__ == '__main__':
     time_list = []
     mis_cases = 0
     for target_node in tqdm(target_node_list):
-        cf_example, time_cost = generate_gnnexplainer_cf_subgraph(target_node, gcn_layer, pyg_data, explainer,
+        cf_example, time_cost = generate_gnnexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_data, explainer,
                                                                   gnn_model, pre_output, dataset_name)
         # print(cf_example)
         print("Time for one example: {:.4f}s".format(time_cost))

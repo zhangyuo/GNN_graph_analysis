@@ -12,6 +12,13 @@ import os
 import pickle
 import random
 import sys
+
+from torch_geometric.utils import dense_to_sparse
+
+from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
+from model.GraphConv import load_GraphConv_model
+from model.GraphTransformer import load_GraphTransforer_model
+
 res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(
     os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
@@ -54,13 +61,14 @@ if __name__ == '__main__':
     attack_method = "GOttack"
     attack_budget_list = ATTACK_BUDGET_LIST
     top_t = ATTACK_BUDGET_LIST[0]
+    heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer"] else None
 
     np.random.seed(SEED_NUM)
     torch.manual_seed(SEED_NUM)
 
     time_name = datetime.now().strftime("%Y-%m-%d")
     # counterfactual explanation subgraph path
-    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/attack_subgraph/{attack_type}_{attack_method}_{dataset_name}_budget{attack_budget_list}'
+    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/attack_subgraph_{test_model}/{attack_type}_{attack_method}_{dataset_name}_budget{attack_budget_list}'
     if not os.path.exists(counterfactual_explanation_subgraph_path):
         os.makedirs(counterfactual_explanation_subgraph_path)
 
@@ -107,12 +115,28 @@ if __name__ == '__main__':
 
     ######################### Loading GCN model  #########################
     model_save_path = f'{base_path}/model_save/{test_model}/{dataset_name}/{gcn_layer}-layer/'
-    file_path = os.path.join(model_save_path, 'gcn_model.pth')
-    gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
-                               with_bias, gcn_layer)
-    dense_adj = torch.tensor(adj.toarray())
-    norm_adj = normalize_adj(dense_adj)
-    pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+    if test_model == 'GCN':
+        file_path = os.path.join(model_save_path, 'gcn_model.pth')
+        gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
+                                   with_bias, gcn_layer)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+    elif test_model == 'GraphTransformer':
+        file_path = os.path.join(model_save_path, 'graphTransformer_model.pth')
+        gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
+                                               heads_num)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
+    elif test_model == 'GraphConv':
+        file_path = os.path.join(model_save_path, 'graphConv_model.pth')
+        gnn_model = load_GraphConv_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
     if gcn_layer != 2:
         # surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # 代理损失:gnn model
@@ -120,12 +144,24 @@ if __name__ == '__main__':
     else:
         surrogate = gnn_model
 
+    if test_model != "GCN":
+        file_path = base_path + "/model_save/surrogate/"
+        if os.path.exists(file_path):
+            surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item() + 1, nhid=16, dropout=0,
+                            with_relu=False, with_bias=False, device=device)
+            surrogate.load_state_dict(torch.load(file_path + 'surrogate.model', map_location=device))
+            surrogate.to(device)
+        else:
+            os.makedirs(file_path)
+            surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)
+            torch.save(surrogate.state_dict(), file_path + 'surrogate.model')
+
     ######################### select test nodes  #########################
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
-    # target_node_list = target_node_list[0:10]
+    # target_node_list = target_node_list[101:110]
 
     ######################### attack subgraph generate  #########################
     start_0 = time.time()
@@ -155,7 +191,11 @@ if __name__ == '__main__':
                 removed_edges.append(edited_edges[index])
 
         norm_adj = normalize_adj(cf_adj)
-        y_new_output = gnn_model.forward(pyg_data.x, norm_adj)
+        if test_model == "GCN":
+            y_new_output = gnn_model.forward(pyg_data.x, norm_adj)
+        else:
+            edge_index, edge_weight = dense_to_sparse(norm_adj)
+            y_new_output = gnn_model.forward(pyg_data.x, edge_index, edge_weight=edge_weight)
         target_node_label = pre_output[target_node].argmax().item()
         new_idx_label = y_new_output[target_node].argmax().item()
 

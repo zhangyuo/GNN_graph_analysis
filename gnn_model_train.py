@@ -15,6 +15,7 @@ import warnings
 
 from torch_geometric.utils import dense_to_sparse
 
+from model.GAT import load_GATNet_model, GATNet_model
 from model.GraphConv import load_GraphConv_model, GraphConv_model
 from model.GraphTransformer import GraphTransformer_model, load_GraphTransforer_model
 
@@ -42,7 +43,7 @@ if __name__ == "__main__":
     weight_decay = WEIGHT_DECAY
     with_bias = WITH_BIAS if TEST_MODEL in ["GCN"] else None
     gcn_layer = GCN_LAYER
-    heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer"] else None
+    heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer", "GAT"] else None
     epoch = GCN_EPOCHS
 
     np.random.seed(SEED_NUM)
@@ -145,6 +146,21 @@ if __name__ == "__main__":
         else:
             gnn_model, pre_output = GraphConv_model(data, nhid, dropout, lr, weight_decay, gcn_layer, epoch, device)
             file_path = os.path.join(model_save_path, 'graphConv_model.pth')
+            torch.save(gnn_model.state_dict(), file_path)
+            gnn_model.eval()
+    elif not gnn_model and test_model == 'GAT':
+        file_path = os.path.join(model_save_path, 'gat_model.pth')
+        if os.path.exists(file_path):
+            gnn_model = load_GATNet_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
+                                          heads_num)
+            dense_adj = torch.tensor(adj.toarray())
+            norm_adj = normalize_adj(dense_adj)
+            edge_index, edge_weight = dense_to_sparse(norm_adj)
+            pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
+        else:
+            gnn_model, pre_output = GATNet_model(data, nhid, dropout, lr, weight_decay, gcn_layer, heads_num, epoch,
+                                                 device)
+            file_path = os.path.join(model_save_path, 'gat_model.pth')
             torch.save(gnn_model.state_dict(), file_path)
             gnn_model.eval()
 

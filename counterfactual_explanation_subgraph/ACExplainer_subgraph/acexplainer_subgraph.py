@@ -13,6 +13,7 @@ import pickle
 import sys
 import warnings
 
+from model.GAT import load_GATNet_model
 from model.GraphConv import load_GraphConv_model
 
 warnings.filterwarnings("ignore")
@@ -314,7 +315,7 @@ if __name__ == '__main__':
     attack_budget_list = ATTACK_BUDGET_LIST
     explainer_method = "ACExplainer"
     top_t = MAX_ATTACK_NODES_NUM
-    heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer"] else None
+    heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer", "GAT"] else None
 
     np.random.seed(SEED_NUM)
     torch.manual_seed(SEED_NUM)
@@ -387,6 +388,13 @@ if __name__ == '__main__':
     elif test_model == 'GraphConv':
         file_path = os.path.join(model_save_path, 'graphConv_model.pth')
         gnn_model = load_GraphConv_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer)
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        edge_index, edge_weight = dense_to_sparse(norm_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
+    elif test_model == 'GAT':
+        file_path = os.path.join(model_save_path, 'gat_model.pth')
+        gnn_model = load_GATNet_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer, heads_num)
         dense_adj = torch.tensor(adj.toarray())
         norm_adj = normalize_adj(dense_adj)
         edge_index, edge_weight = dense_to_sparse(norm_adj)

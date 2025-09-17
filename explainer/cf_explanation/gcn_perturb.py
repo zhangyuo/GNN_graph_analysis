@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from deeprobust.graph.defense import GraphConvolution
 from torch.nn.parameter import Parameter
-from torch_geometric.nn import TransformerConv, GraphConv
+from torch_geometric.nn import TransformerConv, GraphConv, GATConv
 from torch_geometric.utils import dense_to_sparse, to_dense_adj
 from utilty.utils import get_degree_matrix, create_symm_matrix_from_vec, create_vec_from_symm_matrix
 
@@ -56,6 +56,12 @@ class GCNCoraPerturb(nn.Module):
             for _ in range(self.gcn_layer - 2):
                 self.layers.append(GraphConv(nhid, nhid, aggr="add"))
             self.layers.append(GraphConv(nhid, nclass, aggr="add"))
+        elif self.model_name == "GAT":
+            self.layers = nn.ModuleList()
+            self.layers.append(GATConv(nfeat, nhid, heads=heads, dropout=dropout, edge_dim=1))
+            for _ in range(self.gcn_layer - 2):
+                self.layers.append(GATConv(nhid * heads, nhid, heads=heads, dropout=dropout, edge_dim=1))
+            self.layers.append(GATConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
         self.dropout = dropout
 
     def reset_parameters(self, eps=10 ** -4):
@@ -117,7 +123,7 @@ class GCNCoraPerturb(nn.Module):
                 x1 = F.dropout(x1, self.dropout, training=self.training)
                 x2 = self.gc2(x1, norm_adj)
                 return F.log_softmax(x2, dim=1)
-        elif self.model_name in ["GraphTransformer", "GraphConv"]:
+        elif self.model_name in ["GraphTransformer", "GraphConv", "GAT"]:
             edge_index, edge_weight = dense_to_sparse(norm_adj)
             edge_index = edge_index.to(x.device)
             edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
@@ -163,7 +169,7 @@ class GCNCoraPerturb(nn.Module):
                 x1 = F.dropout(x1, self.dropout, training=self.training)
                 x2 = self.gc2(x1, norm_adj)
                 return F.log_softmax(x2, dim=1), self.P
-        elif self.model_name in ["GraphTransformer", "GraphConv"]:
+        elif self.model_name in ["GraphTransformer", "GraphConv", "GAT"]:
             edge_index, edge_weight = dense_to_sparse(norm_adj)
             edge_index = edge_index.to(x.device)
             edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]

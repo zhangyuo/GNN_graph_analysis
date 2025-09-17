@@ -9,7 +9,7 @@
 # @Desc     :
 """
 # baseline model
-TEST_MODEL = "GraphTransformer"  # ["GCN", "GraphTransformer", "GraphConv"]
+TEST_MODEL = "GAT"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
 
 # dataset
 DATA_NAME = "cora"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
@@ -149,6 +149,52 @@ elif TEST_MODEL == "GraphConv":
     elif DATA_NAME == "ogbn-arxiv":
         HIDDEN_CHANNELS = 100
         DROPOUT = 0.5
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.01
+        GCN_LAYER = 2
+        GCN_EPOCHS = 5000
+        WITH_BIAS = True
+elif TEST_MODEL == "GAT":
+    if DATA_NAME == "cora":
+        HIDDEN_CHANNELS = 32  # 64 16
+        DROPOUT = 0.5  # 0 0.3
+        HEADS_NUM = 2  # 1 2
+        WEIGHT_DECAY = 0.01  # 0.01
+        LEARNING_RATE = 0.01  # 0.01
+        GCN_LAYER = 2  # 1 2
+        GCN_EPOCHS = 200  # 200
+        WITH_BIAS = True
+    elif DATA_NAME == "BA-SHAPES":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 2
+        GCN_EPOCHS = 20000
+        WITH_BIAS = True
+    elif DATA_NAME == "TREE-CYCLES":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 2
+        GCN_EPOCHS = 5000
+        WITH_BIAS = True
+    elif DATA_NAME == "Loan-Decision":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 2
+        GCN_EPOCHS = 5000
+        WITH_BIAS = True
+    elif DATA_NAME == "ogbn-arxiv":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0.5
+        HEADS_NUM = 2
         WEIGHT_DECAY = 0.001
         LEARNING_RATE = 0.01
         GCN_LAYER = 2

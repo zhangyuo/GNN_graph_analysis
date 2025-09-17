@@ -74,7 +74,7 @@ class SignedMaskPerturbation(nn.Module):
             "GCN": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5},
             "GraphTransformer": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8},
             "GraphConv": {"cora": -1.0, "BA-SHAPES": -1.0, "TREE-CYCLES": -1.0, "Loan-Decision": -1.0},
-            "GAT": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5}
+            "GAT": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8}
         }[self.test_model][self.dataset_name]
         ones_indices = torch.nonzero(self.extended_sub_adj == 1)
         non_diagonal_ones = ones_indices[ones_indices[:, 0] != ones_indices[:, 1]].tolist()
@@ -91,7 +91,7 @@ class SignedMaskPerturbation(nn.Module):
             "GCN": {"cora": 0.4, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.4, "Loan-Decision": 0.4},
             "GraphTransformer": {"cora": 0.8, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8},
             "GraphConv": {"cora": 0.55, "BA-SHAPES": 0.55, "TREE-CYCLES": 0.55, "Loan-Decision": 0.55},
-            "GAT": {"cora": 0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": 0.5, "Loan-Decision": 0.5}
+            "GAT": {"cora": 0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8}
         }[self.test_model][self.dataset_name]
         for i in attack_nodes_idx:
             if i != self.node_idx:
@@ -296,6 +296,12 @@ class GNNPerturb(nn.Module):
             for _ in range(self.gcn_layer - 2):
                 self.layers.append(GraphConv(nhid, nhid, aggr="add"))
             self.layers.append(GraphConv(nhid, nclass, aggr="add"))
+        elif self.model_name == "GAT":
+            self.layers = nn.ModuleList()
+            self.layers.append(GATConv(nfeat, nhid, heads=heads, dropout=dropout, edge_dim=1))
+            for _ in range(self.gcn_layer - 2):
+                self.layers.append(GATConv(nhid * heads, nhid, heads=heads, dropout=dropout, edge_dim=1))
+            self.layers.append(GATConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
 
     def forward(self, x: torch.Tensor, sub_adj: torch.Tensor) -> torch.Tensor:
         """训练模式：使用连续扰动矩阵"""
@@ -352,7 +358,7 @@ class GNNPerturb(nn.Module):
                 x1 = F.dropout(x1, self.dropout, training=self.training)
                 x2 = self.gc2(x1, norm_adj)
                 return F.log_softmax(x2, dim=1)
-        elif self.model_name in ["GraphTransformer", "GraphConv"]:
+        elif self.model_name in ["GraphTransformer", "GraphConv", "GAT"]:
             # # 1. 固定 edge_index（从 extended_sub_adj 提取一次即可，不要每次 dense_to_sparse）
             # # if not hasattr(self, "edge_index_base"):
             # self.edge_index_base, _ = dense_to_sparse(norm_adj)

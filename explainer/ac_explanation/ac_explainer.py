@@ -297,7 +297,7 @@ class ACExplainer:
         with torch.no_grad():
             if self.test_model == "GCN":
                 output = self.model(self.sub_feat, norm_adj)
-            elif self.test_model in ["GraphTransformer", "GraphConv"]:
+            elif self.test_model in ["GraphTransformer", "GraphConv", "GAT"]:
                 edge_index, edge_weight = dense_to_sparse(norm_adj)
                 output = self.model(self.sub_feat, edge_index, edge_weight=edge_weight)
             else:
@@ -344,7 +344,7 @@ class ACExplainer:
 
             if self.test_model == "GCN":
                 output = self.model(self.sub_feat, norm_adj)
-            elif self.test_model in ["GraphTransformer", "GraphConv"]:
+            elif self.test_model in ["GraphTransformer", "GraphConv", "GAT"]:
                 edge_index, edge_weight = dense_to_sparse(norm_adj)
                 output = self.model(self.sub_feat, edge_index, edge_weight=edge_weight)
             else:

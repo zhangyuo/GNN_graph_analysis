@@ -18,6 +18,7 @@ from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANAT
     TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α1, α2, \
     α3, \
     TAU_C, LEARNING_RATE_AC, NUM_EPOCHS, NUM_EPOCHS_AC, k, HEADS_NUM
+from model.GAT import load_GATNet_model
 from model.GCN import load_GCN_model, dr_data_to_pyg_data
 from model.GraphConv import load_GraphConv_model
 from model.GraphTransformer import load_GraphTransforer_model
@@ -52,7 +53,7 @@ weight_decay = WEIGHT_DECAY
 with_bias = WITH_BIAS
 device = DEVICE
 tau_c = TAU_C
-heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer"] else None
+heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer", "GAT"] else None
 
 np.random.seed(SEED_NUM)
 torch.manual_seed(SEED_NUM)
@@ -116,6 +117,13 @@ elif test_model == 'GraphTransformer':
 elif test_model == 'GraphConv':
     file_path = os.path.join(model_save_path, 'graphConv_model.pth')
     gnn_model = load_GraphConv_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer)
+    dense_adj = torch.tensor(adj.toarray())
+    norm_adj = normalize_adj(dense_adj)
+    edge_index, edge_weight = dense_to_sparse(norm_adj)
+    y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
+elif test_model == 'GAT':
+    file_path = os.path.join(model_save_path, 'gat_model.pth')
+    gnn_model = load_GATNet_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer, heads_num)
     dense_adj = torch.tensor(adj.toarray())
     norm_adj = normalize_adj(dense_adj)
     edge_index, edge_weight = dense_to_sparse(norm_adj)

@@ -21,7 +21,7 @@ class CFExplainer:
     """
 
     def __init__(self, model, sub_adj, sub_feat, n_hid, dropout,
-                 sub_labels, y_pred_orig, num_classes, beta, device, gcn_layer,with_bias, test_model, heads):
+                 sub_labels, y_pred_orig, num_classes, beta, device, gcn_layer, with_bias, test_model, heads):
         super(CFExplainer, self).__init__()
         self.model = model
         self.model.eval()
@@ -34,7 +34,7 @@ class CFExplainer:
         self.beta = beta
         self.num_classes = num_classes
         self.device = device
-        self.gcn_layer=gcn_layer
+        self.gcn_layer = gcn_layer
         self.with_bias = with_bias
         self.heads = heads
         self.test_model = test_model
@@ -47,7 +47,8 @@ class CFExplainer:
 
         # Freeze weights from original model in cf_model 冻结原始参数，仅训练扰动矩阵
         for name, param in self.cf_model.named_parameters():
-            if name.endswith("weight") or name.endswith("bias"):
+            if name.endswith("weight") or name.endswith("bias") or name.endswith("att_src") or name.endswith(
+                    "att_dst") or name.endswith("att_edge"):
                 param.requires_grad = False
         for name, param in self.model.named_parameters():
             print("orig model requires_grad: ", name, param.requires_grad)
@@ -95,7 +96,7 @@ class CFExplainer:
     def train(self, epoch):
         t = time.time()
         self.cf_model.eval()  # 反事实模型g训练阶段采用评估模式，冻结dropout和batchnorm
-        self.cf_optimizer.zero_grad() # 清空上一轮的梯度（避免累积）
+        self.cf_optimizer.zero_grad()  # 清空上一轮的梯度（避免累积）
 
         # output uses differentiable P_hat ==> adjacency matrix not binary, but needed for training
         # output_actual uses thresholded P ==> binary adjacency matrix ==> gives actual prediction
@@ -117,8 +118,8 @@ class CFExplainer:
         if self.cf_model.get_mask_parameters().grad is not None:
             print(f"Mask grad norm: {self.cf_model.get_mask_parameters().grad.norm().item()}")
 
-        clip_grad_norm(self.cf_model.parameters(), 2.0) # 裁剪梯度幅度
-        self.cf_optimizer.step() # 根据梯度更新参数
+        clip_grad_norm(self.cf_model.parameters(), 2.0)  # 裁剪梯度幅度
+        self.cf_optimizer.step()  # 根据梯度更新参数
         print('Node idx: {}'.format(self.node_idx),
               'New idx: {}'.format(self.new_idx),
               'Epoch: {:04d}'.format(epoch + 1),

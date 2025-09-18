@@ -72,7 +72,7 @@ class SignedMaskPerturbation(nn.Module):
         init_value = -0.8  # GCN:-0.5 GraphConv:-1.0 GraphTransformer: -0.8
         init_value = {
             "GCN": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5},
-            "GraphTransformer": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8},
+            "GraphTransformer": {"cora": -0.8, "BA-SHAPES": -0.6, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8},
             "GraphConv": {"cora": -1.0, "BA-SHAPES": -1.0, "TREE-CYCLES": -1.0, "Loan-Decision": -1.0},
             "GAT": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8}
         }[self.test_model][self.dataset_name]
@@ -89,9 +89,9 @@ class SignedMaskPerturbation(nn.Module):
         init_value = 0.8  # GCN：0.4 GraphConv:0.55 GraphTransformer: 0.8
         init_value = {
             "GCN": {"cora": 0.4, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.4, "Loan-Decision": 0.4},
-            "GraphTransformer": {"cora": 0.8, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8},
+            "GraphTransformer": {"cora": 0.8, "BA-SHAPES": 0.6, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8},
             "GraphConv": {"cora": 0.55, "BA-SHAPES": 0.55, "TREE-CYCLES": 0.55, "Loan-Decision": 0.55},
-            "GAT": {"cora": 0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8}
+            "GAT": {"cora": 0.8, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8}
         }[self.test_model][self.dataset_name]
         for i in attack_nodes_idx:
             if i != self.node_idx:

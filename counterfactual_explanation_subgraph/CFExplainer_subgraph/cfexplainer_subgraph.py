@@ -29,6 +29,7 @@ from model.GraphTransformer import load_GraphTransforer_model
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
     TreeCyclesDataset, LoanDecisionDataset
+import torch.nn.functional as F
 
 
 def attack_cfexplanation_subgraph_generate(target_node_list, attack_subgraph, features, labels, gnn_model,
@@ -176,6 +177,9 @@ if __name__ == '__main__':
         # Create PyG Data object
         with open(dataset_path + "/BAShapes.pickle", "rb") as f:
             pyg_data = CPU_Unpickler(f).load()
+            if test_model == "GAT":
+                # because of no features of nodes
+                pyg_data.x = F.one_hot(pyg_data.y).float()
         data = BAShapesDataset(pyg_data)
         # Create deeprobust Data object
         adj, features, labels = data.adj, data.features, data.labels
@@ -184,6 +188,9 @@ if __name__ == '__main__':
         # Create PyG Data object
         with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
             pyg_data = CPU_Unpickler(f).load()
+            if test_model == "GAT":
+                # because of no features of nodes
+                pyg_data.x = F.one_hot(pyg_data.y).float()
         # Create deeprobust Data object
         data = TreeCyclesDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels

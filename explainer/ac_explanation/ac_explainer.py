@@ -125,7 +125,8 @@ class ACExplainer:
         # if test_model == "GCN":
         # Freeze weights from original model in cf_model 冻结原始参数，仅训练扰动矩阵
         for name, param in self.cf_model.named_parameters():
-            if name.endswith("weight") or name.endswith("bias"):
+            if name.endswith("weight") or name.endswith("bias") or name.endswith("att_src") or name.endswith("att_dst") or name.endswith("att_edge"):
+            # if name.endswith("weight") or name.endswith("bias"):
                 param.requires_grad = False
         for name, param in self.model.named_parameters():
             print("orig model requires_grad: ", name, param.requires_grad)

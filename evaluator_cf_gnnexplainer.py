@@ -70,6 +70,9 @@ elif dataset_name == 'BA-SHAPES':
     # Create PyG Data object
     with open(dataset_path + "/BAShapes.pickle", "rb") as f:
         pyg_data = CPU_Unpickler(f).load()
+        if test_model == "GAT":
+            # because of no features of nodes
+            pyg_data.x = F.one_hot(pyg_data.y).float()
     data = BAShapesDataset(pyg_data)
     # Create deeprobust Data object
     adj, features, labels = data.adj, data.features, data.labels
@@ -78,6 +81,9 @@ elif dataset_name == 'TREE-CYCLES':
     # Create PyG Data object
     with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
         pyg_data = CPU_Unpickler(f).load()
+        if test_model == "GAT":
+            # because of no features of nodes
+            pyg_data.x = F.one_hot(pyg_data.y).float()
     # Create deeprobust Data object
     data = TreeCyclesDataset(pyg_data)
     adj, features, labels = data.adj, data.features, data.labels
@@ -211,8 +217,8 @@ print("Num of misclassification: ", misclas_num)
 print("Num of cf examples found: {}/{}".format(misclas_num, len(df)))
 print("Metric 1 - Misclassification Rate: {:.2f}".format(misclas_num / len(target_node_list)))
 print("Metric 2 - Fidelity: {:.4f}".format(fidelity / len(target_node_list)))
-print("Metric 3 - Average Explanation Size: {:.2f}, E+: {:.2f}, E-: {:.2f}".format(edited_num / misclas_num,
-                                                                                   added_edges_num / misclas_num,
-                                                                                   deleted_edges_num / misclas_num))
-print("Metric 4 - Average Plausibility: {:.2f}".format(S_plau / misclas_num))
+# print("Metric 3 - Average Explanation Size: {:.2f}, E+: {:.2f}, E-: {:.2f}".format(edited_num / misclas_num,
+#                                                                                    added_edges_num / misclas_num,
+#                                                                                    deleted_edges_num / misclas_num))
+# print("Metric 4 - Average Plausibility: {:.2f}".format(S_plau / misclas_num))
 print("Metric 5 - Average Time Cost: {:.2f}s/per".format(np.mean(np.array(time_list))))

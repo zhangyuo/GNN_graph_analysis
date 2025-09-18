@@ -34,6 +34,7 @@ from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShap
 from instance_level_explanation_subgraph.GNNExplainer_subgraph.generate_gnnexplainer_subgraph import \
     generate_gnnexplainer_cf_subgraph
 from subgraph_quantify.graph_analysis import gnn_explainer_generate
+import torch.nn.functional as F
 
 if __name__ == '__main__':
     res = os.path.abspath(__file__)  # acquire absolute path of current file
@@ -84,6 +85,9 @@ if __name__ == '__main__':
         # Create PyG Data object
         with open(dataset_path + "/BAShapes.pickle", "rb") as f:
             pyg_data = CPU_Unpickler(f).load()
+            if test_model == "GAT":
+                # because of no features of nodes
+                pyg_data.x = F.one_hot(pyg_data.y).float()
         data = BAShapesDataset(pyg_data)
         # Create deeprobust Data object
         adj, features, labels = data.adj, data.features, data.labels
@@ -92,6 +96,9 @@ if __name__ == '__main__':
         # Create PyG Data object
         with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
             pyg_data = CPU_Unpickler(f).load()
+            if test_model == "GAT":
+                # because of no features of nodes
+                pyg_data.x = F.one_hot(pyg_data.y).float()
         # Create deeprobust Data object
         data = TreeCyclesDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels

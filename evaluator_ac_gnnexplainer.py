@@ -73,6 +73,9 @@ elif dataset_name == 'BA-SHAPES':
     # Create PyG Data object
     with open(dataset_path + "/BAShapes.pickle", "rb") as f:
         pyg_data = CPU_Unpickler(f).load()
+        if test_model == "GAT":
+            # because of no features of nodes
+            pyg_data.x = F.one_hot(pyg_data.y).float()
     data = BAShapesDataset(pyg_data)
     # Create deeprobust Data object
     adj, features, labels = data.adj, data.features, data.labels
@@ -81,6 +84,9 @@ elif dataset_name == 'TREE-CYCLES':
     # Create PyG Data object
     with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
         pyg_data = CPU_Unpickler(f).load()
+        if test_model == "GAT":
+            # because of no features of nodes
+            pyg_data.x = F.one_hot(pyg_data.y).float()
     # Create deeprobust Data object
     data = TreeCyclesDataset(pyg_data)
     adj, features, labels = data.adj, data.features, data.labels
@@ -134,6 +140,7 @@ target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_typ
 target_node_list += target_node_list1
 target_node_list.sort()
 print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
+# target_node_list = target_node_list[101:110]
 
 ######################### Load CF examples  #########################
 header = ['success', 'target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'plau_loss',
@@ -180,6 +187,7 @@ for i in df.index:
     a2 = new_label[df["new_idx"][i]].argmax()
     if a1.item() != a2.item():
         misclas_num += 1
+        # print(df["target_node"][i], df["new_idx"][i])
 
     # fidelity
     prob_pred_orig = torch.exp(y_pred_orig[df["target_node"][i]])

@@ -6,6 +6,7 @@ import pickle
 import torch
 import numpy as np
 import pandas as pd
+from torch_geometric.transforms import RandomNodeSplit
 from torch_geometric.utils import k_hop_subgraph, dense_to_sparse, to_dense_adj, subgraph
 from deeprobust.graph.utils import classification_margin
 from deeprobust.graph.data import Dataset
@@ -277,7 +278,7 @@ class CPU_Unpickler(pickle.Unpickler):
 
 
 class BAShapesDataset(Dataset):
-    def __init__(self, pyg_data):
+    def __init__(self, pyg_data, test_model=None):
         self.name = 'BA-SHAPES'
         self.num_nodes = pyg_data.num_nodes
         self.num_features = pyg_data.num_node_features
@@ -288,6 +289,14 @@ class BAShapesDataset(Dataset):
         self.labels = pyg_data.y.numpy()
 
         # 创建训练/验证/测试掩码
+        # if test_model == "GAT":
+        #     transform = RandomNodeSplit(split="train_rest", num_val=140, num_test=200)
+        #     data = transform(pyg_data)
+        #     valid_nodes = np.arange(self.num_nodes)
+        #     self.idx_train = valid_nodes[data.train_mask]
+        #     self.idx_val  = valid_nodes[data.val_mask]
+        #     self.idx_test = valid_nodes[data.test_mask]
+        # else:
         self.idx_train = self._create_mask(0.1)
         self.idx_val = self._create_mask(0.1, exclude=self.idx_train)
         self.idx_test = self._create_mask(0.8, exclude=np.concatenate([self.idx_train, self.idx_val]))

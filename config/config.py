@@ -9,10 +9,10 @@
 # @Desc     :
 """
 # baseline model
-TEST_MODEL = "GAT"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
+TEST_MODEL = "GraphTransformer"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
 
 # dataset
-DATA_NAME = "cora"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
+DATA_NAME = "Loan-Decision"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
@@ -84,16 +84,16 @@ elif TEST_MODEL == "GraphTransformer":
         WEIGHT_DECAY = 0.001
         LEARNING_RATE = 0.001
         GCN_LAYER = 2
-        GCN_EPOCHS = 20000
+        GCN_EPOCHS = 750
         WITH_BIAS = True
     elif DATA_NAME == "TREE-CYCLES":
-        HIDDEN_CHANNELS = 100
+        HIDDEN_CHANNELS = 32
         DROPOUT = 0
         HEADS_NUM = 2
-        WEIGHT_DECAY = 0.001
+        WEIGHT_DECAY = 0.0001
         LEARNING_RATE = 0.001
         GCN_LAYER = 2
-        GCN_EPOCHS = 5000
+        GCN_EPOCHS = 2000
         WITH_BIAS = True
     elif DATA_NAME == "Loan-Decision":
         HIDDEN_CHANNELS = 100
@@ -102,7 +102,7 @@ elif TEST_MODEL == "GraphTransformer":
         WEIGHT_DECAY = 0.001
         LEARNING_RATE = 0.001
         GCN_LAYER = 2
-        GCN_EPOCHS = 5000
+        GCN_EPOCHS = 2000
         WITH_BIAS = True
     elif DATA_NAME == "ogbn-arxiv":
         HIDDEN_CHANNELS = 100
@@ -165,31 +165,31 @@ elif TEST_MODEL == "GAT":
         GCN_EPOCHS = 200  # 200
         WITH_BIAS = True
     elif DATA_NAME == "BA-SHAPES":
-        HIDDEN_CHANNELS = 100
-        DROPOUT = 0
-        HEADS_NUM = 2
-        WEIGHT_DECAY = 0.001
-        LEARNING_RATE = 0.001
+        HIDDEN_CHANNELS = 64
+        DROPOUT = 0.2
+        HEADS_NUM = 8
+        WEIGHT_DECAY = 5e-4
+        LEARNING_RATE = 0.005
         GCN_LAYER = 2
-        GCN_EPOCHS = 20000
+        GCN_EPOCHS = 500
         WITH_BIAS = True
     elif DATA_NAME == "TREE-CYCLES":
-        HIDDEN_CHANNELS = 100
-        DROPOUT = 0
+        HIDDEN_CHANNELS = 64
+        DROPOUT = 0.2
         HEADS_NUM = 2
         WEIGHT_DECAY = 0.001
         LEARNING_RATE = 0.001
         GCN_LAYER = 2
-        GCN_EPOCHS = 5000
+        GCN_EPOCHS = 500
         WITH_BIAS = True
     elif DATA_NAME == "Loan-Decision":
-        HIDDEN_CHANNELS = 100
-        DROPOUT = 0
+        HIDDEN_CHANNELS = 32
+        DROPOUT = 0.4
         HEADS_NUM = 2
         WEIGHT_DECAY = 0.001
-        LEARNING_RATE = 0.001
+        LEARNING_RATE = 0.005
         GCN_LAYER = 2
-        GCN_EPOCHS = 5000
+        GCN_EPOCHS = 1000
         WITH_BIAS = True
     elif DATA_NAME == "ogbn-arxiv":
         HIDDEN_CHANNELS = 100

@@ -32,10 +32,12 @@ class GATNet(nn.Module):
 
         # 中间层
         for _ in range(num_layers - 2):
-            self.layers.append(GATConv(hidden_channels * heads, hidden_channels, heads=heads, dropout=dropout, edge_dim=1))
+            self.layers.append(
+                GATConv(hidden_channels * heads, hidden_channels, heads=heads, dropout=dropout, edge_dim=1))
 
         # 最后一层
-        self.layers.append(GATConv(hidden_channels * heads, out_channels, heads=1, dropout=dropout, edge_dim=1))
+        self.layers.append(
+            GATConv(hidden_channels * heads, out_channels, heads=1, concat=False, dropout=dropout, edge_dim=1))
 
         # 设备
         if device is None:
@@ -56,7 +58,7 @@ class GATNet(nn.Module):
 
         for conv in self.layers[:-1]:
             x = conv(x, edge_index, edge_attr)
-            x = F.relu(x)
+            x = F.relu(x)  # BA-SHAPES  use elu, other use relu
             x = F.dropout(x, p=self.dropout, training=self.training)
         # 最后一层
         x = self.layers[-1](x, edge_index, edge_attr)

@@ -90,6 +90,9 @@ if __name__ == '__main__':
         # Create PyG Data object
         with open(dataset_path + "/BAShapes.pickle", "rb") as f:
             pyg_data = CPU_Unpickler(f).load()
+            if test_model == "GAT":
+                # because of no features of nodes
+                pyg_data.x = F.one_hot(pyg_data.y).float()
         data = BAShapesDataset(pyg_data)
         # Create deeprobust Data object
         adj, features, labels = data.adj, data.features, data.labels
@@ -98,6 +101,9 @@ if __name__ == '__main__':
         # Create PyG Data object
         with open(dataset_path + "/TreeCycle.pickle", "rb") as f:
             pyg_data = CPU_Unpickler(f).load()
+            if test_model == "GAT":
+                # because of no features of nodes
+                pyg_data.x = F.one_hot(pyg_data.y).float()
         # Create deeprobust Data object
         data = TreeCyclesDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels
@@ -153,7 +159,7 @@ if __name__ == '__main__':
         surrogate = gnn_model
 
     if test_model != "GCN":
-        file_path = base_path + "/model_save/surrogate/"
+        file_path = base_path + f"/model_save/surrogate/{dataset_name}/"
         if os.path.exists(file_path):
             surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item() + 1, nhid=16, dropout=0,
                             with_relu=False, with_bias=False, device=device)

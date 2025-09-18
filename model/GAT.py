@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from torch_geometric.nn import GATConv
 from torch_geometric.utils import dense_to_sparse
 
+from model.test_model import adj_to_edge_index
 from utilty.utils import normalize_adj
 
 
@@ -107,6 +108,9 @@ class GATNet(nn.Module):
     def fit(self, data, train_iters=500):
         best_val_acc = 0.0
         best_model_state = None
+        print("Train label distribution:", torch.bincount(torch.tensor(data.labels)[data.idx_train]))
+        print("Val label distribution:", torch.bincount(torch.tensor(data.labels)[data.idx_val]))
+        print("Test label distribution:", torch.bincount(torch.tensor(data.labels)[data.idx_test]))
         for epoch in range(train_iters):
             loss = self.train_step(data)
             train_acc, val_acc, test_acc = self.test_step(data)
@@ -154,6 +158,7 @@ def GATNet_model(data, hidden_channels, dropout, lr, weight_decay, num_layers, h
         edge_index, edge_weight = edge_index.to(device), edge_weight.to(device)
 
         output = target_gnn.forward(features, edge_index, edge_weight=edge_weight)
+        # output = target_gnn.forward(features, adj_to_edge_index(data.adj))
     else:
         output = None
 

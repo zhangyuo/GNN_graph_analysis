@@ -53,13 +53,12 @@ class GraphTransformer(nn.Module):
             edge_attr = edge_weight.view(-1, 1)  # 变成 [num_edges, 1]
         else:
             edge_attr = None
-        edge_weight = edge_attr
         for conv in self.layers[:-1]:
-            x = conv(x, edge_index, edge_weight)
+            x = conv(x, edge_index, edge_attr=edge_attr)
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
         # 最后一层
-        x = self.layers[-1](x, edge_index, edge_weight)
+        x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
         return F.log_softmax(x, dim=1)
 
     def train_step(self, data):

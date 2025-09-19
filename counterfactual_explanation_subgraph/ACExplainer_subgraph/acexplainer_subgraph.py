@@ -429,7 +429,7 @@ if __name__ == '__main__':
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
-    # target_node_list = target_node_list[101:110]
+    target_node_list = target_node_list[10:20]
 
     ######################### GNN explainer generate  #########################
     df_orbit = OrbitTableGenerator(dataset_name).generate_orbit_table()

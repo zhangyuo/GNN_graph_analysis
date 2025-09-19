@@ -266,6 +266,7 @@ class GNNPerturb(nn.Module):
         self.α4 = α4
         self.tau_c = tau_c
         self.model_name = test_model
+        self.dataset_name = dataset_name
         self.heads = heads
 
         # 扰动层
@@ -301,7 +302,10 @@ class GNNPerturb(nn.Module):
             self.layers.append(GATConv(nfeat, nhid, heads=heads, dropout=dropout, edge_dim=1))
             for _ in range(self.gcn_layer - 2):
                 self.layers.append(GATConv(nhid * heads, nhid, heads=heads, dropout=dropout, edge_dim=1))
-            self.layers.append(GATConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
+            if self.dataset_name == "Cora":
+                self.layers.append(GATConv(nhid * heads, nclass, heads=1, concat=False, dropout=dropout, edge_dim=1))
+            else:
+                self.layers.append(GATConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
 
     def forward(self, x: torch.Tensor, sub_adj: torch.Tensor) -> torch.Tensor:
         """训练模式：使用连续扰动矩阵"""
@@ -380,11 +384,14 @@ class GNNPerturb(nn.Module):
             edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
             edge_attr.requires_grad_(True)
             for conv in self.layers[:-1]:
-                x = conv(x, edge_index, edge_attr)
-                x = F.relu(x)
+                x = conv(x, edge_index, edge_attr=edge_attr)
+                if self.model_name == "GAT" and self.dataset_name == "BA-SHAPES":
+                    x = F.elu(x)
+                else:
+                    x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
             # 最后一层
-            x = self.layers[-1](x, edge_index, edge_attr)
+            x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
             return F.log_softmax(x, dim=1)
 
             # # 确保norm_adj的梯度不会丢失

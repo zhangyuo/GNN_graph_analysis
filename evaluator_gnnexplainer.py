@@ -29,6 +29,7 @@ import pandas as pd
 import pickle
 import torch
 from deeprobust.graph.data import Dataset
+import torch.nn.functional as F
 
 res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(res)
@@ -141,7 +142,7 @@ header = ['success','target_node', 'new_idx', 'added_edges', 'removed_edges', 'e
           'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', "sub_labels"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-17'
+time_name = '2025-09-18'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(

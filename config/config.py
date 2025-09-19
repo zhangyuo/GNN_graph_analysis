@@ -9,10 +9,10 @@
 # @Desc     :
 """
 # baseline model
-TEST_MODEL = "GraphTransformer"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
+TEST_MODEL = "GAT"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
 
 # dataset
-DATA_NAME = "Loan-Decision"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
+DATA_NAME = "cora"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
@@ -213,6 +213,7 @@ BETA = 0.5  # Tradeoff for dist loss
 NUM_EPOCHS = 500  # Num epochs for explainer
 OPTIMIZER = "SGD"  # SGD or Adadelta
 N_Momentum = 0.9  # Nesterov momentum  # 0.9
+LEARNING_RATE_CF = 0.01  # 0.01
 ####################################################################
 
 ################ ACExplainer parameters for datasets ##############

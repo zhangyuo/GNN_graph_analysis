@@ -43,6 +43,7 @@ from config.config import *
 from utilty.utils import CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, normalize_adj, \
     select_test_nodes
 from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
+import torch.nn.functional as F
 
 warnings.filterwarnings("ignore")
 

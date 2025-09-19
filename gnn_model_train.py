@@ -15,6 +15,7 @@ import warnings
 
 from torch_geometric.utils import dense_to_sparse
 
+from model.DenseGAT import DenseGATNet_model, load_DenseGATNet_model
 from model.GAT import load_GATNet_model, GATNet_model
 from model.GraphConv import load_GraphConv_model, GraphConv_model
 from model.GraphTransformer import GraphTransformer_model, load_GraphTransforer_model
@@ -165,8 +166,8 @@ if __name__ == "__main__":
             edge_index, edge_weight = dense_to_sparse(norm_adj)
             pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
         else:
-            gnn_model, pre_output = GATNet_model(data, nhid, dropout, lr, weight_decay, gcn_layer, heads_num, epoch,
-                                                 device)
+            gnn_model, pre_output = GATNet_model(data, nhid, dropout, lr, weight_decay, gcn_layer, heads_num,
+                                                 epoch, device)
             file_path = os.path.join(model_save_path, 'gat_model.pth')
             torch.save(gnn_model.state_dict(), file_path)
             gnn_model.eval()

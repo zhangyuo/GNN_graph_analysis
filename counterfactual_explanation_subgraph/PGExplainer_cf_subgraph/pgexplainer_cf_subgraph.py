@@ -34,6 +34,7 @@ from model.GCN import GCN_model, dr_data_to_pyg_data_mask, load_GCN_model, dr_da
 from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, \
     LoanDecisionDataset
 from subgraph_quantify.graph_analysis import pg_explainer_generate
+import torch.nn.functional as F
 
 if __name__ == '__main__':
     res = os.path.abspath(__file__)  # acquire absolute path of current file

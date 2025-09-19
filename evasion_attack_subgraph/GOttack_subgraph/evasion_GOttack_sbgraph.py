@@ -42,6 +42,7 @@ from deeprobust.graph.utils import classification_margin
 from config.config import *
 from utilty.utils import CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, normalize_adj, \
     select_test_nodes
+import torch.nn.functional as F
 
 warnings.filterwarnings("ignore")
 

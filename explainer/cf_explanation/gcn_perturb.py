@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from deeprobust.graph.defense import GraphConvolution
 from torch.nn.parameter import Parameter
-from torch_geometric.nn import TransformerConv, GraphConv, GATConv
+from torch_geometric.nn import TransformerConv, GraphConv, GATConv, DenseGATConv
 from torch_geometric.utils import dense_to_sparse, to_dense_adj
 from utilty.utils import get_degree_matrix, create_symm_matrix_from_vec, create_vec_from_symm_matrix
 
@@ -14,7 +14,7 @@ class GCNCoraPerturb(nn.Module):
     2-layer GCN used in GNN Explainer cora tasks
     """
 
-    def __init__(self, nfeat, nhid, nclass, adj, dropout, beta,gcn_layer, with_bias, test_model, heads, edge_additions=False):
+    def __init__(self, nfeat, nhid, nclass, adj, dropout, beta,gcn_layer, with_bias, test_model, dataset_name, heads, edge_additions=False):
         super(GCNCoraPerturb, self).__init__()
         self.adj = adj
         self.nclass = nclass
@@ -24,6 +24,7 @@ class GCNCoraPerturb(nn.Module):
         self.edge_additions = edge_additions  # are edge additions included in perturbed matrix
         self.heads = heads
         self.model_name = test_model
+        self.dataset_name=dataset_name
 
         # P_hat needs to be symmetric ==> learn vector representing entries in upper/lower triangular matrix and use to populate P_hat later
         self.P_vec_size = int((self.num_nodes * self.num_nodes - self.num_nodes) / 2) + self.num_nodes  # # 上三角元素数量
@@ -61,7 +62,10 @@ class GCNCoraPerturb(nn.Module):
             self.layers.append(GATConv(nfeat, nhid, heads=heads, dropout=dropout, edge_dim=1))
             for _ in range(self.gcn_layer - 2):
                 self.layers.append(GATConv(nhid * heads, nhid, heads=heads, dropout=dropout, edge_dim=1))
-            self.layers.append(GATConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
+            if self.dataset_name == "Cora":
+                self.layers.append(GATConv(nhid * heads, nclass, heads=1, concat=False, dropout=dropout, edge_dim=1))
+            else:
+                self.layers.append(GATConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
         self.dropout = dropout
 
     def reset_parameters(self, eps=10 ** -4):
@@ -123,17 +127,32 @@ class GCNCoraPerturb(nn.Module):
                 x1 = F.dropout(x1, self.dropout, training=self.training)
                 x2 = self.gc2(x1, norm_adj)
                 return F.log_softmax(x2, dim=1)
-        elif self.model_name in ["GraphTransformer", "GraphConv", "GAT"]:
-            edge_index, edge_weight = dense_to_sparse(norm_adj)
+        elif self.model_name in ["GraphTransformer", "GAT"]:
+            edge_index, _ = dense_to_sparse(norm_adj)
             edge_index = edge_index.to(x.device)
-            edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
-            edge_attr.requires_grad_(True)
+            edge_attr = norm_adj[edge_index[0], edge_index[1]].view(-1, 1)  # for return grad in backward
+            edge_attr = edge_attr.requires_grad_(True)
             for conv in self.layers[:-1]:
-                x = conv(x, edge_index, edge_attr)
+                x = conv(x, edge_index, edge_attr=edge_attr)
+                if self.model_name == "GAT" and self.dataset_name == "BA-SHAPES":
+                    x = F.elu(x)
+                else:
+                    x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
+            # 最后一层
+            x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
+            return F.log_softmax(x, dim=1)
+        elif self.model_name in ["GraphConv"]:
+            edge_index, _ = dense_to_sparse(norm_adj)
+            edge_index = edge_index.to(x.device)
+            edge_attr = norm_adj[edge_index[0], edge_index[1]].view(-1, 1)  # for return grad in backward
+            edge_attr = edge_attr.requires_grad_(True)
+            for conv in self.layers[:-1]:
+                x = conv(x, edge_index, edge_weight=edge_attr)
                 x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
             # 最后一层
-            x = self.layers[-1](x, edge_index, edge_attr)
+            x = self.layers[-1](x, edge_index, edge_weight=edge_attr)
             return F.log_softmax(x, dim=1)
 
     def forward_prediction(self, x):
@@ -169,16 +188,30 @@ class GCNCoraPerturb(nn.Module):
                 x1 = F.dropout(x1, self.dropout, training=self.training)
                 x2 = self.gc2(x1, norm_adj)
                 return F.log_softmax(x2, dim=1), self.P
-        elif self.model_name in ["GraphTransformer", "GraphConv", "GAT"]:
+        elif self.model_name in ["GraphTransformer", "GAT"]:
             edge_index, edge_weight = dense_to_sparse(norm_adj)
             edge_index = edge_index.to(x.device)
             edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
             for conv in self.layers[:-1]:
-                x = conv(x, edge_index, edge_attr)
+                x = conv(x, edge_index, edge_attr=edge_attr)
+                if self.model_name == "GAT" and self.dataset_name == "BA-SHAPES":
+                    x = F.elu(x)
+                else:
+                    x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
+            # 最后一层
+            x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
+            return F.log_softmax(x, dim=1), self.P
+        elif self.model_name in ["GraphConv", "GAT"]:
+            edge_index, edge_weight = dense_to_sparse(norm_adj)
+            edge_index = edge_index.to(x.device)
+            edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
+            for conv in self.layers[:-1]:
+                x = conv(x, edge_index, edge_weight=edge_attr)
                 x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
             # 最后一层
-            x = self.layers[-1](x, edge_index, edge_attr)
+            x = self.layers[-1](x, edge_index, edge_weight=edge_attr)
             return F.log_softmax(x, dim=1), self.P
 
     def loss(self, output, y_pred_orig, y_pred_new_actual):

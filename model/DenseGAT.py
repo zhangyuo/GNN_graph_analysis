@@ -1,43 +1,39 @@
 #!/usr/bin/env python
 # coding:utf-8
 """
-# @Time     : 2025/9/17 17:06
+# @Time     : 2025/9/18 22:36
 # @Author   : Yu Zhang
 # @Email    : yuzhang@cs.aau.dk
-# @File     : GAT.py
+# @File     : DenseGAT.py
 # @Software : PyCharm
 # @Desc     :
 """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GATConv, DenseGATConv
-from torch_geometric.utils import dense_to_sparse
+from torch_geometric.nn import DenseGATConv
 
-from model.test_model import adj_to_edge_index
 from utilty.utils import normalize_adj
 
 
-class GATNet(nn.Module):
+class DenseGATNet(nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels,
                  num_layers=2, heads=2, dropout=0.5, lr=0.01, weight_decay=5e-4, device=None):
-        super(GATNet, self).__init__()
+        super(DenseGATNet, self).__init__()
 
         self.layers = nn.ModuleList()
         self.num_layers = num_layers
         self.dropout = dropout
 
         # 第一层
-        self.layers.append(GATConv(in_channels, hidden_channels, heads=heads, dropout=dropout, edge_dim=1))
+        self.layers.append(DenseGATConv(in_channels, hidden_channels, heads=heads, dropout=dropout))
 
         # 中间层
         for _ in range(num_layers - 2):
-            self.layers.append(
-                GATConv(hidden_channels * heads, hidden_channels, heads=heads, dropout=dropout, edge_dim=1))
+            self.layers.append(DenseGATConv(hidden_channels * heads, hidden_channels, heads=heads, dropout=dropout))
 
         # 最后一层
-        self.layers.append(
-            GATConv(hidden_channels * heads, out_channels, heads=1, concat=False, dropout=dropout, edge_dim=1))
+        self.layers.append(DenseGATConv(hidden_channels * heads, out_channels, heads=1, dropout=dropout))
 
         # 设备
         if device is None:
@@ -50,18 +46,13 @@ class GATNet(nn.Module):
         # 优化器
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
 
-    def forward(self, x, edge_index, edge_weight=None):
-        if edge_weight is not None:
-            edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
-        else:
-            edge_attr = None
-
+    def forward(self, x, adj):
         for conv in self.layers[:-1]:
-            x = conv(x, edge_index, edge_attr=edge_attr)
-            x = F.relu(x)  # BA-SHAPES on GAT  use elu, other use relu
+            x = conv(x, adj)
+            x = F.relu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
         # 最后一层
-        x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
+        x = self.layers[-1](x, adj)[0]
         return F.log_softmax(x, dim=1)
 
     def train_step(self, data):
@@ -70,14 +61,11 @@ class GATNet(nn.Module):
         self.optimizer.zero_grad()
 
         dense_adj = torch.tensor(data.adj.toarray(), dtype=torch.float32, device=self.device)
-        norm_adj = normalize_adj(dense_adj)
-        edge_index, edge_weight = dense_to_sparse(norm_adj)
-        edge_index, edge_weight = edge_index.to(self.device), edge_weight.to(self.device)
-
+        norm_adj = normalize_adj(dense_adj)  # 保持和稀疏版一致
         features = torch.tensor(data.features.toarray(), dtype=torch.float32, device=self.device)
         labels = torch.tensor(data.labels, dtype=torch.long, device=self.device)
 
-        out = self(features, edge_index, edge_weight=edge_weight)
+        out = self(features, norm_adj)
         loss = self.loss(out[data.idx_train], labels[data.idx_train])
         loss.backward()
         self.optimizer.step()
@@ -89,13 +77,10 @@ class GATNet(nn.Module):
         self.eval()
         dense_adj = torch.tensor(data.adj.toarray(), dtype=torch.float32, device=self.device)
         norm_adj = normalize_adj(dense_adj)
-        edge_index, edge_weight = dense_to_sparse(norm_adj)
-        edge_index, edge_weight = edge_index.to(self.device), edge_weight.to(self.device)
-
         features = torch.tensor(data.features.toarray(), dtype=torch.float32, device=self.device)
         labels = torch.tensor(data.labels, dtype=torch.long, device=self.device)
 
-        out = self(features, edge_index, edge_weight=edge_weight)
+        out = self(features, norm_adj)
         pred = out.argmax(dim=1)
 
         accs = []
@@ -128,8 +113,8 @@ class GATNet(nn.Module):
             print(f"Loaded best model with Val Acc {best_val_acc:.4f}")
 
 
-def GATNet_initialization(data, hidden_channels, dropout, lr, weight_decay, num_layers, heads_num, device):
-    target_gnn = GATNet(
+def DenseGATNet_initialization(data, hidden_channels, dropout, lr, weight_decay, num_layers, heads_num, device):
+    target_gnn = DenseGATNet(
         in_channels=data.features.shape[1],
         hidden_channels=hidden_channels,
         out_channels=data.labels.max().item() + 1,
@@ -143,11 +128,11 @@ def GATNet_initialization(data, hidden_channels, dropout, lr, weight_decay, num_
     return target_gnn
 
 
-def GATNet_model(data, hidden_channels, dropout, lr, weight_decay, num_layers, heads_num, epoch, device,
-                 target_gnn=None):
+def DenseGATNet_model(data, hidden_channels, dropout, lr, weight_decay, num_layers, heads_num, epoch, device,
+                      target_gnn=None):
     if target_gnn is None:
-        target_gnn = GATNet_initialization(data, hidden_channels, dropout, lr, weight_decay,
-                                           num_layers, heads_num, device)
+        target_gnn = DenseGATNet_initialization(data, hidden_channels, dropout, lr, weight_decay,
+                                                num_layers, heads_num, device)
         target_gnn = target_gnn.to(device)
         target_gnn.train()
         target_gnn.fit(data, epoch)
@@ -156,19 +141,16 @@ def GATNet_model(data, hidden_channels, dropout, lr, weight_decay, num_layers, h
         features = torch.tensor(data.features.toarray(), dtype=torch.float32, device=device)
         dense_adj = torch.tensor(data.adj.toarray(), dtype=torch.float32, device=device)
         norm_adj = normalize_adj(dense_adj)
-        edge_index, edge_weight = dense_to_sparse(norm_adj)
-        edge_index, edge_weight = edge_index.to(device), edge_weight.to(device)
 
-        output = target_gnn.forward(features, edge_index, edge_weight=edge_weight)
-        # output = target_gnn.forward(features, adj_to_edge_index(data.adj))
+        output = target_gnn.forward(features, norm_adj)
     else:
         output = None
 
     return target_gnn, output
 
 
-def load_GATNet_model(file_path, data, hidden_channels, dropout, device, lr, weight_decay, num_layers, heads_num):
-    gnn_model = GATNet_initialization(data, hidden_channels, dropout, lr, weight_decay, num_layers, heads_num, device)
+def load_DenseGATNet_model(file_path, data, hidden_channels, dropout, device, lr, weight_decay, num_layers, heads_num):
+    gnn_model = DenseGATNet_initialization(data, hidden_channels, dropout, lr, weight_decay, num_layers, heads_num, device)
     gnn_model.load_state_dict(torch.load(file_path))
     gnn_model.eval()
     return gnn_model

@@ -14,9 +14,7 @@ import sys
 
 from torch_geometric.utils import dense_to_sparse
 
-from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANATION_TYPE, DATA_NAME, ATTACK_BUDGET_LIST, \
-    TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α2, α3, \
-    TAU_C, LEARNING_RATE_AC, k, HEADS_NUM
+from config.config import *
 from model.GAT import load_GATNet_model
 from model.GCN import load_GCN_model
 from model.GraphConv import load_GraphConv_model
@@ -142,7 +140,7 @@ header = ['success','target_node', 'new_idx', 'added_edges', 'removed_edges', 'e
           'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', "sub_labels"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-18'
+time_name = '2025-09-20'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(

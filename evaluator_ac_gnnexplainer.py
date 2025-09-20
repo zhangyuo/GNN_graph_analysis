@@ -14,10 +14,7 @@ import sys
 
 from torch_geometric.utils import dense_to_sparse
 
-from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANATION_TYPE, DATA_NAME, ATTACK_BUDGET_LIST, \
-    TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α1, α2, \
-    α3, \
-    TAU_C, LEARNING_RATE_AC, NUM_EPOCHS, NUM_EPOCHS_AC, k, HEADS_NUM
+from config.config import *
 from model.GAT import load_GATNet_model
 from model.GCN import load_GCN_model, dr_data_to_pyg_data
 from model.GraphConv import load_GraphConv_model
@@ -31,6 +28,7 @@ import pickle
 import torch
 import warnings
 from deeprobust.graph.data import Dataset
+import torch.nn.functional as F
 
 warnings.filterwarnings("ignore")
 res = os.path.abspath(__file__)  # acquire absolute path of current file
@@ -147,7 +145,7 @@ header = ['success', 'target_node', 'new_idx', 'added_edges', 'removed_edges', '
           'original_pred', 'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', 'sub_labels']
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-17'
+time_name = '2025-09-20'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
@@ -212,8 +210,8 @@ for i in df.index:
         # tt = tt / df["explanation_size"][i]
         L_plau = α2 * compute_deg_diff(orig_sub_adj,
                                        edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
-                                                                                                   edited_sub_adj,
-                                                                                                   tau_c)
+                                                                                 edited_sub_adj,
+                                                                                 tau_c)
         S_plau += 2 * (1 - 1 / (1 + torch.exp(-1 * k * L_plau)))
         # print(S_plau)
 

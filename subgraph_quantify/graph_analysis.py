@@ -330,7 +330,7 @@ def generate_subgraph(attack_type, explanation_type, target_node_list, gnn_model
     return subgraph_data
 
 
-def gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer):
+def gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer, epoch=200):
     if test_model == "GCN":
         pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
     else:
@@ -340,7 +340,7 @@ def gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_
     explainer = Explainer(
         model=pyg_gcn,
         algorithm=GNNExplainer(
-            epochs=200,  # 减少训练轮次
+            epochs=epoch,  # 减少训练轮次
             # lr=0.1,  # 提高学习率
             log=False,  # 禁用日志
             # coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # 添加正则化防止梯度爆炸
@@ -357,7 +357,7 @@ def gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_
     return explainer
 
 
-def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer, pyg_data, data):
+def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer, pyg_data, data, epochs=30):
     if test_model == "GCN":
         pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
     else:
@@ -369,7 +369,7 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
     explainer = Explainer(
         model=pyg_gcn,
         algorithm=PGExplainer(
-            epochs=30,  # 减少训练轮次
+            epochs=epochs,  # 减少训练轮次
             # lr=0.1,  # 提高学习率
             log=False,  # 禁用日志
             # coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # 添加正则化防止梯度爆炸
@@ -404,20 +404,40 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
         norm_adj = normalize_adj(dense_adj)
         edge_index, edge_weight = dense_to_sparse(norm_adj)
 
-    for epoch in tqdm(range(30)):
+    for epoch in tqdm(range(epochs)):
         for index in train_indices:
             # Calculate the loss for each node and update the parameters of PGExplainer
             # 将索引转换为标量
             index_tensor = index.unsqueeze(0) if index.dim() == 0 else index
-            loss = explainer.algorithm.train(
-                epoch,
-                pyg_gcn,
-                pyg_data.x,
-                edge_index,
-                edge_weight=edge_weight if test_model!="GCN" else None,
-                target=pyg_data.y.to(torch.long),
-                index=index_tensor  # 传入标量
-            )
+            if test_model == "GCN":
+                loss = explainer.algorithm.train(
+                    epoch,
+                    pyg_gcn,
+                    pyg_data.x,
+                    edge_index,
+                    target=pyg_data.y.to(torch.long),
+                    index=index_tensor  # 传入标量
+                )
+            elif test_model in ["GraphTransformer", "GAT"]:
+                loss = explainer.algorithm.train(
+                    epoch,
+                    pyg_gcn,
+                    pyg_data.x,
+                    edge_index,
+                    edge_weight=edge_weight,
+                    target=pyg_data.y.to(torch.long),
+                    index=index_tensor  # 传入标量
+                )
+            elif test_model in ["GraphConv"]:
+                loss = explainer.algorithm.train(
+                    epoch,
+                    pyg_gcn,
+                    pyg_data.x,
+                    edge_index,
+                    edge_weight=edge_weight,
+                    target=pyg_data.y.to(torch.long),
+                    index=index_tensor  # 传入标量
+                )
     return explainer
 
 

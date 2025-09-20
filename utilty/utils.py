@@ -51,6 +51,7 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
         high = []
         low = []
         other = []
+        sample_num = 10
         for class_num in set(labels):
             class_num_sorted_margins = [x for x, y in sorted_margins if labels[x] == class_num]
             high += [x for x in class_num_sorted_margins[: sample_num]]
@@ -72,6 +73,7 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
         high = []
         low = []
         other = []
+        sample_num = 20
         for class_num in set(labels):
             class_num_sorted_margins = [x for x, y in sorted_margins if labels[x] == class_num]
             high += [x for x in class_num_sorted_margins[: sample_num]]

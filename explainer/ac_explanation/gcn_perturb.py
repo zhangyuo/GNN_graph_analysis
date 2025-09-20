@@ -69,13 +69,14 @@ class SignedMaskPerturbation(nn.Module):
 
         # 遍历extended_sub_adj中所有现有边
         # sub_adj = self.extended_sub_adj[lhop_node_index, :][:, lhop_node_index]
-        init_value = -0.8  # GCN:-0.5 GraphConv:-1.0 GraphTransformer: -0.8
+        # init_value = -0.8  # GCN:-0.5 GraphConv:-1.0 GraphTransformer: -0.8
         init_value = {
             "GCN": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5},
             "GraphTransformer": {"cora": -0.8, "BA-SHAPES": -0.6, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8},
             "GraphConv": {"cora": -1.0, "BA-SHAPES": -1.0, "TREE-CYCLES": -1.0, "Loan-Decision": -1.0},
             "GAT": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8}
         }[self.test_model][self.dataset_name]
+        init_value += 0.01*torch.randn(1).item()
         ones_indices = torch.nonzero(self.extended_sub_adj == 1)
         non_diagonal_ones = ones_indices[ones_indices[:, 0] != ones_indices[:, 1]].tolist()
         for i in range(len(non_diagonal_ones)):
@@ -86,41 +87,20 @@ class SignedMaskPerturbation(nn.Module):
                 self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i]])
                 mask_index += 1
         # 遍历所有attack_nodes，针对无现有边场景倾向添加，但需要抑制加边
-        init_value = 0.8  # GCN：0.4 GraphConv:0.55 GraphTransformer: 0.8
+        # init_value = 0.8  # GCN：0.4 GraphConv:0.55 GraphTransformer: 0.8
         init_value = {
             "GCN": {"cora": 0.4, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.4, "Loan-Decision": 0.4},
             "GraphTransformer": {"cora": 0.8, "BA-SHAPES": 0.6, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8},
             "GraphConv": {"cora": 0.55, "BA-SHAPES": 0.55, "TREE-CYCLES": 0.55, "Loan-Decision": 0.55},
             "GAT": {"cora": 0.8, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8}
         }[self.test_model][self.dataset_name]
+        init_value -= 0.01 * torch.randn(1).item()
         for i in attack_nodes_idx:
             if i != self.node_idx:
                 mask_init_values.append(init_value)
                 self.plan_added_node_idx.append([mask_index, [self.node_idx, i]])
                 mask_index += 1
 
-        # # 遍历扩展子图中的所有节点（除了目标节点自己）
-        # for i in range(self.n_nodes):
-        #     if i == self.node_idx:
-        #         continue
-        #
-        #     # 检查在原始图中是否存在边
-        #     if self.extended_sub_adj[self.node_idx, i]:
-        #         init_value = -0.4
-        #         # 现有边初始化为小负数 (倾向删除)
-        #         mask_init_values.append(init_value)
-        #         self.plan_deleted_node_idx.append([i, mask_index])
-        #         mask_index += 1
-        #     elif i in attack_nodes_idx:
-        #         init_value = -0.2
-        #         # 仅针对目标节点与攻击候选节点无现有边的情况进行初始化 (倾向添加，但需要抑制加边)
-        #         mask_init_values.append(init_value)
-        #         self.plan_added_node_idx.append([i, mask_index])
-        #         mask_index += 1
-
-        # 转换为可训练参数--将列表转换为PyTorch张量，并封装为可学习参数(Parameter)
-
-        # mask_init_values = torch.randn(len(mask_init_values))
         return nn.Parameter(torch.tensor(mask_init_values, dtype=torch.float32))
 
     def _apply_discretization(self, M_e: torch.Tensor) -> torch.Tensor:
@@ -134,6 +114,7 @@ class SignedMaskPerturbation(nn.Module):
             top_k_M_e = M_e
             if len(M_e) > self.top_k:
                 # 找出绝对值最大的top_k个索引
+                # keep_k = min(self.top_k, int(0.5 * len(M_e)))
                 topk_indices = torch.topk(abs_values, self.top_k).indices
                 sparse_mask = torch.zeros_like(M_e)  # 创建全0掩码
                 sparse_mask[topk_indices] = 1  # 仅将top_k个位置设为1
@@ -362,23 +343,7 @@ class GNNPerturb(nn.Module):
                 x1 = F.dropout(x1, self.dropout, training=self.training)
                 x2 = self.gc2(x1, norm_adj)
                 return F.log_softmax(x2, dim=1)
-        elif self.model_name in ["GraphTransformer", "GraphConv", "GAT"]:
-            # # 1. 固定 edge_index（从 extended_sub_adj 提取一次即可，不要每次 dense_to_sparse）
-            # # if not hasattr(self, "edge_index_base"):
-            # self.edge_index_base, _ = dense_to_sparse(norm_adj)
-            # self.edge_index_base = self.edge_index_base.to(x.device)
-            # # 2. 从 norm_adj 里取出对应边的权重，作为 edge_weight
-            # edge_weight = norm_adj[self.edge_index_base[0], self.edge_index_base[1]]
-            # edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
-            # # 3. 送入 TransformerConv
-            # for conv in self.layers[:-1]:
-            #     x = conv(x, self.edge_index_base, edge_attr)
-            #     x = F.relu(x)
-            #     x = F.dropout(x, p=self.dropout, training=self.training)
-            # # 最后一层
-            # x = self.layers[-1](x, self.edge_index_base, edge_attr)
-            # return F.log_softmax(x, dim=1)
-
+        elif self.model_name in ["GraphTransformer", "GAT"]:
             edge_index, edge_weight = dense_to_sparse(norm_adj)
             edge_index = edge_index.to(x.device)
             edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
@@ -393,31 +358,19 @@ class GNNPerturb(nn.Module):
             # 最后一层
             x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
             return F.log_softmax(x, dim=1)
+        elif self.model_name in ["GraphConv"]:
+            edge_index, edge_weight = dense_to_sparse(norm_adj)
+            edge_index = edge_index.to(x.device)
+            edge_attr = edge_weight.view(-1, 1)  # [num_edges, 1]
+            edge_attr.requires_grad_(True)
+            for conv in self.layers[:-1]:
+                x = conv(x, edge_index, edge_weight=edge_attr)
+                x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
+            # 最后一层
+            x = self.layers[-1](x, edge_index, edge_weight=edge_attr)
+            return F.log_softmax(x, dim=1)
 
-            # # 确保norm_adj的梯度不会丢失
-            # norm_adj.requires_grad_(True)
-            #
-            # # 创建一个可微的稀疏表示
-            # # 获取非零元素的位置和值
-            # n = norm_adj.size(0)
-            # indices = torch.nonzero(norm_adj > 1e-5).t()  # 使用小的阈值而不是0
-            # values = norm_adj[indices[0], indices[1]]
-            #
-            # # 确保梯度能够通过values传播
-            # values.requires_grad_(True)
-            #
-            # # 创建稀疏张量（保持梯度）
-            # edge_index = indices
-            # edge_weight = values
-            #
-            # # 确保所有层都使用正确的edge_index和edge_attr
-            # for conv in self.layers[:-1]:
-            #     x = conv(x, edge_index, edge_weight.unsqueeze(1))
-            #     x = F.relu(x)
-            #     x = F.dropout(x, p=self.dropout, training=self.training)
-            # # 最后一层
-            # x = self.layers[-1](x, edge_index, edge_weight.unsqueeze(1))
-            # return F.log_softmax(x, dim=1)
     def get_mask_parameters(self) -> nn.Parameter:
         """获取可训练的掩码参数"""
         return self.perturb_layer.M

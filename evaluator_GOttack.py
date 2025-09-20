@@ -144,7 +144,7 @@ header = ['success','target_node', 'new_idx', 'added_edges', 'removed_edges', 'e
           'new_pred', 'cf_adj']
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-18'
+time_name = '2025-09-19'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/attack_subgraph_{test_model}/{attack_type}_{attack_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(

@@ -9,7 +9,7 @@
 # @Desc     :
 """
 # baseline model
-TEST_MODEL = "GAT"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
+TEST_MODEL = "GCN"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
 
 # dataset
 DATA_NAME = "cora"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
@@ -222,12 +222,12 @@ MAX_ATTACK_NODES_NUM = 20  # max number of selected attacked nodes
 NUM_EPOCHS_AC = 200  # Num epochs for explainer
 OPTIMIZER_AC = "SGD"  # GCN-'SGD' or 'Adadelta' or 'Adam'
 N_Momentum_AC = 0.9  # Nesterov momentum
-LAMBDA_PRED = 1.0  # 预测损失权重  GCN: 1.0
+LAMBDA_PRED = 10.0  # 预测损失权重  GCN: 1.0, GT/GAT on cora:10.0
 LAMBDA_DIST = 0.5  # 稀疏项惩罚权重
 LAMBDA_PLAU = 0.5  # 现实惩罚项权重
 MAX_EDITS = 5  # 最大扰动预算
-TAU_PLUS = 0.5  # 加边阈值
-TAU_MINUS = -0.5  # 减边阈值
+TAU_PLUS = 0.5  # 加边阈值  GCN 0.5
+TAU_MINUS = -0.5  # 减边阈值  GCN -0.5
 α1 = 0  # 特征相似惩罚项权重0
 α2 = 1.5  # 度变化惩罚项权重1.5
 α3 = 1.0  # 聚类系数变化惩罚项权重1.0

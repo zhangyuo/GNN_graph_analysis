@@ -12,6 +12,10 @@ import os
 import pickle
 import sys
 import warnings
+res = os.path.abspath(__file__)  # acquire absolute path of current file
+base_path = os.path.dirname(
+    os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
+sys.path.insert(0, base_path)
 
 from torch_geometric.utils import dense_to_sparse
 
@@ -37,11 +41,6 @@ from subgraph_quantify.graph_analysis import pg_explainer_generate
 import torch.nn.functional as F
 
 if __name__ == '__main__':
-    res = os.path.abspath(__file__)  # acquire absolute path of current file
-    base_path = os.path.dirname(
-        os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
-    sys.path.insert(0, base_path)
-
     ######################### initialize random state  #########################
     dataset_name = DATA_NAME
     test_model = TEST_MODEL
@@ -163,7 +162,7 @@ if __name__ == '__main__':
         with open(counterfactual_explanation_subgraph_path + "/explainer.pickle", "rb") as fr:
             explainer = pickle.load(fr)
     except:
-        explainer = pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer, pyg_data, data)
+        explainer = pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer, pyg_data, data, 35)
         with open(counterfactual_explanation_subgraph_path + "/explainer.pickle", "wb") as fw:
             pickle.dump(explainer, fw)
 

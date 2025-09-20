@@ -123,7 +123,17 @@ def generate_gnnexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_da
             edge_index=edge_index_sub,
             index=target_new_id
         )
-    else:
+    elif test_model in ["GraphTransformer", "GAT"]:
+        norm_adj = normalize_adj(sub_adj)
+        edge_index_sub_new, edge_weight = dense_to_sparse(norm_adj)
+        # edge_attr = edge_weight.view(-1, 1)
+        explanation = explainer(
+            x=x_sub,
+            edge_index=edge_index_sub_new,
+            edge_weight=edge_weight,
+            index=target_new_id
+        )
+    elif test_model in ["GraphConv"]:
         norm_adj = normalize_adj(sub_adj)
         edge_index_sub_new, edge_weight = dense_to_sparse(norm_adj)
         # edge_attr = edge_weight.view(-1, 1)
@@ -164,8 +174,8 @@ def generate_gnnexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_da
     # target_node_label_1 = gnn_model.forward(x_sub, norm_adj)[target_new_id].argmax().item()
 
     max_edits = 5
-    if dataset_name in ["BA-SHAPES", "TREE-CYCLES"]:
-        max_edits = 6
+    # if dataset_name in ["BA-SHAPES", "TREE-CYCLES"]:
+    #     max_edits = 6
     # 4. 遍历边索引，根据重要性降序分别删除对应，判断预测是否翻转
     for index, edge in enumerate(sorted_edge_index.T):  # 转置后每行代表一条边
         u, v = edge

@@ -142,7 +142,7 @@ header = ['success','target_node', 'new_idx', 'added_edges', 'removed_edges', 'e
           'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', "sub_labels"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-18'
+time_name = '2025-09-20'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
@@ -210,8 +210,8 @@ print("Num of misclassification: ", misclas_num)
 print("Num of cf examples found: {}/{}".format(misclas_num, len(df)))
 print("Metric 1 - Misclassification Rate: {:.2f}".format(misclas_num / len(target_node_list)))
 print("Metric 2 - Fidelity: {:.4f}".format(fidelity / len(target_node_list)))
-# print("Metric 3 - Average Explanation Size: {:.2f}, E+: {:.2f}, E-: {:.2f}".format(edited_num / misclas_num,
-#                                                                                    added_edges_num / misclas_num,
-#                                                                                    deleted_edges_num / misclas_num))
-# print("Metric 4 - Average Plausibility: {:.2f}".format(S_plau / misclas_num))
+print("Metric 3 - Average Explanation Size: {:.2f}, E+: {:.2f}, E-: {:.2f}".format(edited_num / misclas_num,
+                                                                                   added_edges_num / misclas_num,
+                                                                                   deleted_edges_num / misclas_num))
+print("Metric 4 - Average Plausibility: {:.2f}".format(S_plau / misclas_num))
 print("Metric 5 - Average Time Cost: {:.2f}s/per".format(np.mean(np.array(time_list))))

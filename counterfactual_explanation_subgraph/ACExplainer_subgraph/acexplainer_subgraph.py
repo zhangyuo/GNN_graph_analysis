@@ -13,15 +13,13 @@ import pickle
 import sys
 import warnings
 
-from model.GAT import load_GATNet_model
-from model.GraphConv import load_GraphConv_model
-
 warnings.filterwarnings("ignore")
 res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(
     os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
 sys.path.insert(0, base_path)
-
+from model.GAT import load_GATNet_model
+from model.GraphConv import load_GraphConv_model
 import time
 from datetime import datetime
 
@@ -429,7 +427,7 @@ if __name__ == '__main__':
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
-    target_node_list = target_node_list[10:20]
+    # target_node_list = target_node_list[10:20]
 
     ######################### GNN explainer generate  #########################
     df_orbit = OrbitTableGenerator(dataset_name).generate_orbit_table()

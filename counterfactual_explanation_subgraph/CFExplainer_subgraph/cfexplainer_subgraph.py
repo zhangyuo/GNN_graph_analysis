@@ -11,6 +11,12 @@
 import os
 import pickle
 import sys
+
+res = os.path.abspath(__file__)  # acquire absolute path of current file
+base_path = os.path.dirname(
+    os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
+sys.path.insert(0, base_path)
+
 import time
 from datetime import datetime
 
@@ -133,10 +139,7 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
 
 
 if __name__ == '__main__':
-    res = os.path.abspath(__file__)  # acquire absolute path of current file
-    base_path = os.path.dirname(
-        os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
-    sys.path.insert(0, base_path)
+
 
     ######################### initialize random state  #########################
     dataset_name = DATA_NAME
@@ -250,7 +253,7 @@ if __name__ == '__main__':
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
-    target_node_list = target_node_list[101:110]
+    # target_node_list = target_node_list[101:110]
 
     ######################### GNN explainer generate  #########################
     # Get CF examples in test set

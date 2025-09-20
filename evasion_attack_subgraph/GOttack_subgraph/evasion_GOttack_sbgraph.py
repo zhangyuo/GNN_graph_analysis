@@ -12,7 +12,10 @@ import os
 import pickle
 import random
 import sys
-
+res = os.path.abspath(__file__)  # acquire absolute path of current file
+base_path = os.path.dirname(
+    os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
+sys.path.insert(0, base_path)
 from torch_geometric.utils import dense_to_sparse
 
 from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
@@ -20,10 +23,7 @@ from model.GAT import load_GATNet_model
 from model.GraphConv import load_GraphConv_model
 from model.GraphTransformer import load_GraphTransforer_model
 
-res = os.path.abspath(__file__)  # acquire absolute path of current file
-base_path = os.path.dirname(
-    os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
-sys.path.insert(0, base_path)
+
 import time
 import warnings
 from datetime import datetime

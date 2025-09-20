@@ -62,6 +62,8 @@ if __name__ == '__main__':
     np.random.seed(SEED_NUM)
     torch.manual_seed(SEED_NUM)
 
+    attack_budget_list = [5]
+    budget = attack_budget_list[0]
     time_name = datetime.now().strftime("%Y-%m-%d")
     # counterfactual explanation subgraph path
     counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
@@ -155,7 +157,7 @@ if __name__ == '__main__':
     # target_node_list = target_node_list[101:110]
 
     ######################### GNN explainer generate  #########################
-    explainer = gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer)
+    explainer = gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer,epoch=10)
 
     ######################### GNN explainer generate  #########################
     # Get CF examples in test set
@@ -166,7 +168,7 @@ if __name__ == '__main__':
     mis_cases = 0
     for target_node in tqdm(target_node_list):
         cf_example, time_cost = generate_gnnexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_data, explainer,
-                                                                  gnn_model, pre_output, dataset_name)
+                                                                  gnn_model, pre_output, dataset_name, budget=budget)
         # print(cf_example)
         print("Time for one example: {:.4f}s".format(time_cost))
         time_list.append(time_cost)

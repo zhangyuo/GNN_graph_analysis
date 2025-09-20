@@ -158,7 +158,7 @@ with open(
     df = pd.DataFrame(df_prep, columns=header)
 
 ######################### Metrics Evaluation  #########################
-# restrict_budget = 1  # for computation on different budgets
+restrict_budget = 15  # for computation on different budgets
 misclas_num = 0
 fidelity = 0.0
 added_edges_num = 0.0
@@ -184,24 +184,26 @@ for i in df.index:
     #     misclas_num += 1
     a1 = y_pred_orig[df["target_node"][i]].argmax()
     a2 = new_label[df["new_idx"][i]].argmax()
-    if a1.item() != a2.item():
+    if a1.item() != a2.item() and df["loss_graph_dist"][i] <= restrict_budget:
         misclas_num += 1
 
     # fidelity
-    prob_pred_orig = torch.exp(y_pred_orig[df["target_node"][i]])
-    label_pred_orig = y_pred_orig[df["target_node"][i]].argmax().item()
-    prob_new_actual = torch.exp(new_label[df["new_idx"][i]])
-    fidelity += prob_pred_orig[label_pred_orig] - prob_new_actual[label_pred_orig]
+    if df["loss_graph_dist"][i] <= restrict_budget:
+        prob_pred_orig = torch.exp(y_pred_orig[df["target_node"][i]])
+        label_pred_orig = y_pred_orig[df["target_node"][i]].argmax().item()
+        prob_new_actual = torch.exp(new_label[df["new_idx"][i]])
+        fidelity += prob_pred_orig[label_pred_orig] - prob_new_actual[label_pred_orig]
 
     # explanation size
     # if df["success"][i]:
-    added_edges_num += 0.0
-    deleted_edges_num += df["loss_graph_dist"][i]
-    edited_num += df["loss_graph_dist"][i]
+    if df["loss_graph_dist"][i] <= restrict_budget:
+        added_edges_num += 0.0
+        deleted_edges_num += df["loss_graph_dist"][i]
+        edited_num += df["loss_graph_dist"][i]
 
     # plausibility
     tt = 0.0
-    if df["success"][i]:
+    if df["success"][i] and df["loss_graph_dist"][i] <= restrict_budget:
         # perturbed_edges = df["sub_adj"][i] - df["cf_adj"][i]
         # nonzero_indices = np.nonzero(perturbed_edges)
         # perturbed_edge_list = list(zip(nonzero_indices[0], nonzero_indices[1]))

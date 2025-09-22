@@ -60,13 +60,13 @@ if TEST_MODEL == "GCN":
         GCN_LAYER = 3
         GCN_EPOCHS = 5000
     elif DATA_NAME == "ogbn-arxiv":
-        HIDDEN_CHANNELS = 100
+        HIDDEN_CHANNELS = 64
         DROPOUT = 0.5
         WITH_BIAS = True
-        WEIGHT_DECAY = 0.001
+        WEIGHT_DECAY = 5e-4
         LEARNING_RATE = 0.01
         GCN_LAYER = 2
-        GCN_EPOCHS = 5000
+        GCN_EPOCHS = 200
 elif TEST_MODEL == "GraphTransformer":
     if DATA_NAME == "cora":
         HIDDEN_CHANNELS = 16  # 64 16

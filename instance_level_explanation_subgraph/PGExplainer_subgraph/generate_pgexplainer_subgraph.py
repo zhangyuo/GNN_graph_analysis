@@ -20,7 +20,7 @@ from utilty.explanation_visualization import explanation_subgraph_visualization
 from utilty.utils import normalize_adj
 
 
-def generate_pgexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_data, explainer, gnn_model, pre_output, dataset_name, budget=5):
+def generate_pgexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_data, explainer, gnn_model, pre_output, dataset_name, budget=5, output_idx=None):
     start_time = time.time()
     # generate explanation for target node from specified explainer
     subset, edge_index_sub, mapping, _ = k_hop_subgraph(
@@ -106,7 +106,7 @@ def generate_pgexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_dat
     cf_adj = sub_adj.clone()
     explanation_size = 0
     removed_edges = []
-    target_node_label = pre_output[target_node].argmax().item()
+    target_node_label = pre_output[output_idx.index(target_node)].argmax().item()
     # norm_adj = normalize_adj(sub_adj)
     # target_node_label_1 = gnn_model.forward(x_sub, norm_adj)[target_new_id].argmax().item()
 

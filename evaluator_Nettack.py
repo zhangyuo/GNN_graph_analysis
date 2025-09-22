@@ -11,30 +11,29 @@
 from __future__ import division
 from __future__ import print_function
 import sys
+import os
 
-from torch_geometric.utils import dense_to_sparse
+res = os.path.abspath(__file__)  # acquire absolute path of current file
+base_path = os.path.dirname(res)
+sys.path.insert(0, base_path)
+from torch_geometric.utils import dense_to_sparse, to_undirected
 from tqdm import tqdm
-
-from config.config import ATTACK_TYPE, ATTACK_METHOD, EXPLAINER_METHOD, EXPLANATION_TYPE, DATA_NAME, ATTACK_BUDGET_LIST, \
-    TEST_MODEL, GCN_LAYER, HIDDEN_CHANNELS, DROPOUT, LEARNING_RATE, WEIGHT_DECAY, WITH_BIAS, DEVICE, SEED_NUM, α2, α3, \
-    TAU_C, LEARNING_RATE_AC, k, HEADS_NUM
+from ogb.nodeproppred import PygNodePropPredDataset
+from config.config import *
 from model.GAT import load_GATNet_model
 from model.GCN import load_GCN_model, dr_data_to_pyg_data
 from model.GraphConv import load_GraphConv_model
 from model.GraphTransformer import load_GraphTransforer_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
-    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset
+    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset
 import numpy as np
-import os
+
 import pandas as pd
 import pickle
 import torch
 from deeprobust.graph.data import Dataset
 import torch.nn.functional as F
-
-res = os.path.abspath(__file__)  # acquire absolute path of current file
-base_path = os.path.dirname(res)
-sys.path.insert(0, base_path)
+from counterfactual_explanation_subgraph.ACExplainer_subgraph.acexplainer_subgraph import evaluate_test_data
 
 ######################### evaluated parameters setting  #########################
 dataset_name = DATA_NAME
@@ -97,6 +96,16 @@ elif dataset_name == 'Loan-Decision':
     data = LoanDecisionDataset(pyg_data)
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+elif dataset_name == 'ogbn-arxiv':
+    # Create PyG Data object
+    ogbn_arxiv_data = PygNodePropPredDataset(name="ogbn-arxiv", root=dataset_path)
+    pyg_data = ogbn_arxiv_data[0]
+    pyg_data.edge_index = to_undirected(pyg_data.edge_index)
+    pyg_data.y = pyg_data.y.view(-1).long()
+    # Create deeprobust Data object
+    data = OGBNArxivDataset(ogbn_arxiv_data)
+    adj, features, labels = data.adj, data.features, data.labels
+    idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
 else:
     adj, features, labels = None, None, None
     idx_train, idx_val, idx_test = None, None, None
@@ -107,9 +116,21 @@ if test_model == 'GCN':
     file_path = os.path.join(model_save_path, 'gcn_model.pth')
     gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
                                with_bias, gcn_layer)
-    dense_adj = torch.tensor(adj.toarray())
-    norm_adj = normalize_adj(dense_adj)
-    y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+    if dataset_name != "ogbn-arxiv":
+        dense_adj = torch.tensor(adj.toarray())
+        norm_adj = normalize_adj(dense_adj)
+        y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+    else:
+        output_path = os.path.join(model_save_path, 'pre_output.pikle')
+        if os.path.exists(output_path):
+            with open(output_path, "rb") as fr:
+                result = pickle.load(fr)
+                y_pred_orig, target_node_id = result["pre_output"], result["target_node_id"]
+        else:
+            y_pred_orig, target_node_id = evaluate_test_data(gnn_model, data, pyg_data, gcn_layer)
+            result = {"pre_output": y_pred_orig, "target_node_id": target_node_id}
+            with open(output_path, "wb") as fw:
+                pickle.dump(result, fw)
 elif test_model == 'GraphTransformer':
     file_path = os.path.join(model_save_path, 'graphTransformer_model.pth')
     gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
@@ -134,17 +155,19 @@ elif test_model == 'GAT':
     y_pred_orig = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
 ######################### select test nodes  #########################
+if dataset_name == "ogbn-arxiv":
+    idx_test = target_node_id
 target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, y_pred_orig, labels)
 target_node_list += target_node_list1
 target_node_list.sort()
 print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
 
 ######################### Load CF examples  #########################
-header = ['success','target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'original_pred',
-          'new_pred', 'cf_adj']
+header = ['success', 'target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'original_pred',
+          'new_pred', 'cf_adj', 'y_new_output', 'new_idx_map_tgt_node', 'L_plau']
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-19'
+time_name = '2025-09-22'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/attack_subgraph_{test_model}/{attack_type}_{attack_method}_{dataset_name}_budget{attack_budget_list}'
 
 with open(
@@ -166,45 +189,78 @@ added_edges_num = 0.0
 deleted_edges_num = 0.0
 edited_num = 0.0
 S_plau = 0.0
-orig_sub_adj = torch.tensor(data.adj.toarray())
-sub_feat = pyg_data.x
-for i in tqdm(df.index):
-    edited_sub_adj = torch.tensor(df["cf_adj"][i].toarray())
-    edited_norm_adj = normalize_adj(edited_sub_adj)
-    if test_model == "GCN":
-        new_label = gnn_model.forward(sub_feat, edited_norm_adj)
-    else:
-        edge_index, edge_weight = dense_to_sparse(edited_norm_adj)
-        new_label = gnn_model.forward(sub_feat, edge_index, edge_weight=edge_weight)
+if dataset_name == "ogbn-arxiv":
+    for i in tqdm(df.index):
+        new_label = df['y_new_output'][i]
 
-    # misclassification
-    # if df["success"][i]:
-    #     misclas_num += 1
-    a1 = y_pred_orig[df["target_node"][i]].argmax()
-    a2 = new_label[df["new_idx"][i]].argmax()
-    if a1.item() != a2.item():
-        misclas_num += 1
+        # misclassification
+        tgt_node_map_new_idx = df["target_node"][i]  # target node idx in new constructed subgraph
+        target_node = df["new_idx_map_tgt_node"][i][tgt_node_map_new_idx]
+        output_target_idx = idx_test.index(target_node)
+        # if df["success"][i]:
+        #     misclas_num += 1
+        a1 = y_pred_orig[output_target_idx].argmax()
+        a2 = new_label.argmax()
+        if a1.item() != a2.item():
+            misclas_num += 1
 
-    # fidelity
-    prob_pred_orig = torch.exp(y_pred_orig[df["target_node"][i]])
-    label_pred_orig = y_pred_orig[df["target_node"][i]].argmax().item()
-    prob_new_actual = torch.exp(new_label[df["new_idx"][i]])
-    fidelity += prob_pred_orig[label_pred_orig] - prob_new_actual[label_pred_orig]
+        # fidelity
+        prob_pred_orig = torch.exp(y_pred_orig[output_target_idx])
+        label_pred_orig = y_pred_orig[output_target_idx].argmax().item()
+        prob_new_actual = torch.exp(new_label)
+        fidelity += prob_pred_orig[label_pred_orig] - prob_new_actual[label_pred_orig]
 
-    # explanation size
-    if df["success"][i]:
-        added_edges_num += len(df["added_edges"][i])
-        deleted_edges_num += len(df["removed_edges"][i])
-        edited_num += df["explanation_size"][i]
+        # explanation size
+        if df["success"][i]:
+            added_edges_num += len(df["added_edges"][i])
+            deleted_edges_num += len(df["removed_edges"][i])
+            edited_num += df["explanation_size"][i]
 
-    # plausibility
-    if df["success"][i]:
-        L_plau = α2 * compute_deg_diff(orig_sub_adj,
-                                       edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
-                                                                                                   edited_sub_adj,
-                                                                                                   tau_c)
-        S_plau += 2 * (1 - 1 / (1 + torch.exp(-1 * k * L_plau)))
-        # print(S_plau)
+        # plausibility
+        if df["success"][i]:
+            L_plau = df['L_plau'][i]
+            S_plau += 2 * (1 - 1 / (1 + torch.exp(-1 * k * L_plau)))
+            # print(S_plau)
+else:
+    orig_sub_adj = torch.tensor(data.adj.toarray())
+    sub_feat = pyg_data.x
+    for i in tqdm(df.index):
+        edited_sub_adj = torch.tensor(df["cf_adj"][i].toarray())
+        edited_norm_adj = normalize_adj(edited_sub_adj)
+        if test_model == "GCN":
+            new_label = gnn_model.forward(sub_feat, edited_norm_adj)
+        else:
+            edge_index, edge_weight = dense_to_sparse(edited_norm_adj)
+            new_label = gnn_model.forward(sub_feat, edge_index, edge_weight=edge_weight)
+
+        # misclassification
+        # if df["success"][i]:
+        #     misclas_num += 1
+        a1 = y_pred_orig[df["target_node"][i]].argmax()
+        a2 = new_label[df["new_idx"][i]].argmax()
+        if a1.item() != a2.item():
+            misclas_num += 1
+
+        # fidelity
+        prob_pred_orig = torch.exp(y_pred_orig[df["target_node"][i]])
+        label_pred_orig = y_pred_orig[df["target_node"][i]].argmax().item()
+        prob_new_actual = torch.exp(new_label[df["new_idx"][i]])
+        fidelity += prob_pred_orig[label_pred_orig] - prob_new_actual[label_pred_orig]
+
+        # explanation size
+        if df["success"][i]:
+            added_edges_num += len(df["added_edges"][i])
+            deleted_edges_num += len(df["removed_edges"][i])
+            edited_num += df["explanation_size"][i]
+
+        # plausibility
+        if df["success"][i]:
+            L_plau = α2 * compute_deg_diff(orig_sub_adj,
+                                           edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
+                                                                                     edited_sub_adj,
+                                                                                     tau_c)
+            S_plau += 2 * (1 - 1 / (1 + torch.exp(-1 * k * L_plau)))
+            # print(S_plau)
 
 print("Num of target nodes: ", len(target_node_list))
 print("Num of misclassification: ", misclas_num)

@@ -38,7 +38,7 @@ from subgraph_quantify.structual_similarity.maximum_commom_subgraph import maxim
 from utilty.attack_visualization import visualize_attack_subgraph, generate_timestamp_key
 from torch_geometric.data import Data
 from torch_geometric.explain import Explainer, GNNExplainer, PGExplainer
-from torch_geometric.utils import from_networkx, subgraph, dense_to_sparse
+from torch_geometric.utils import from_networkx, subgraph, dense_to_sparse, k_hop_subgraph
 from torch_geometric.transforms import RandomNodeSplit
 
 from utilty.clean_subgraph_visualization import visualize_restricted_clean_subgraph
@@ -365,6 +365,8 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
     # transform = RandomNodeSplit(split='train_rest', num_val=0.2, num_test=0.2)
     # pyg_data = transform(pyg_data)
 
+    explainer = PGExplainer(model, emb_dim=64, hidden_dim=32, lr=0.01, epochs=20, return_type='log_probs')
+
     # Create explainer (using PyG-formatted data)
     explainer = Explainer(
         model=pyg_gcn,
@@ -440,6 +442,72 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
                 )
     return explainer
 
+
+def pg_explainer_generate_batch(test_model, gnn_model, device, features, labels, gcn_layer, pyg_data, data, target_node_list, epochs=30):
+    if test_model == "GCN":
+        pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
+    else:
+        pyg_gcn = gnn_model
+
+    pyg_gcn.eval()
+    pyg_gcn = pyg_gcn.to(device)
+    pyg_data.x = pyg_data.x.to(device)
+    pyg_data.edge_index = pyg_data.edge_index.to(device)
+    pyg_data.y = pyg_data.y.to(device)
+
+    # ⚡ 使用 Explainer 封装 PGExplainer
+    explainer = Explainer(
+        model=pyg_gcn,
+        algorithm=PGExplainer(epochs=epochs, lr=0.01, emb_dim=128, hidden_dim=64),
+        explanation_type='phenomenon',
+        edge_mask_type='object',
+        model_config=dict(
+            mode='multiclass_classification',
+            task_level='node',
+            return_type='log_probs'
+        )
+    )
+
+    # ⚡ 先训练 PGExplainer
+    for epoch in range(epochs):
+        total_loss = 0
+        for target in target_node_list:
+            # 抽取 k-hop 子图
+            subset, edge_index_sub, mapping, edge_mask = k_hop_subgraph(
+                target, num_hops=gcn_layer, edge_index=pyg_data.edge_index, relabel_nodes=True
+            )
+            x_sub = pyg_data.x[subset]
+            y_sub = pyg_data.y[subset]
+
+            # train 方法更新内部 mask
+            loss = explainer.algorithm.train(
+                model=pyg_gcn,
+                x=x_sub,
+                epoch=epochs,
+                edge_index=edge_index_sub,
+                target=y_sub,
+                index=mapping
+            )
+            total_loss += loss
+
+        print(f"Epoch {epoch + 1}, Avg loss: {total_loss / len(target_node_list):.4f}")
+
+    # # ⚡ 训练完毕后，再用 explainer() 对单节点解释
+    # # 示例: target_node = target_node_list[0]
+    # subset, edge_index_sub, mapping, edge_mask = k_hop_subgraph(
+    #     target_node_list[0], num_hops=gcn_layer, edge_index=pyg_data.edge_index, relabel_nodes=True
+    # )
+    # x_sub = pyg_data.x[subset]
+    # y_sub = pyg_data.y[subset]
+    #
+    # explanation = explainer(
+    #     x=x_sub,
+    #     edge_index=edge_index_sub,
+    #     target=y_sub,
+    #     node_idx=mapping.tolist().index(0)  # target 在子图中的位置
+    # )
+
+    return explainer
 
 def subgraph_quantify(attack_subgraph, explanation_subgraph, pyg_data, pyg_gnn_model, graph_analysis_subgraph_path,
                       target_node_list, target_node_list1,

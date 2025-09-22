@@ -12,8 +12,12 @@ import os
 import pickle
 import sys
 import warnings
-
-from torch_geometric.utils import dense_to_sparse
+res = os.path.abspath(__file__)  # acquire absolute path of current file
+base_path = os.path.dirname(
+    os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
+sys.path.insert(0, base_path)
+from ogb.nodeproppred import PygNodePropPredDataset
+from torch_geometric.utils import dense_to_sparse, to_undirected
 
 from model.GAT import load_GATNet_model
 from model.GraphConv import load_GraphConv_model
@@ -30,17 +34,16 @@ from tqdm import tqdm
 from config.config import *
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
 from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, \
-    LoanDecisionDataset
+    LoanDecisionDataset, OGBNArxivDataset
 from instance_level_explanation_subgraph.GNNExplainer_subgraph.generate_gnnexplainer_subgraph import \
     generate_gnnexplainer_cf_subgraph
 from subgraph_quantify.graph_analysis import gnn_explainer_generate
 import torch.nn.functional as F
+from counterfactual_explanation_subgraph.ACExplainer_subgraph.acexplainer_subgraph import evaluate_test_data
+
 
 if __name__ == '__main__':
-    res = os.path.abspath(__file__)  # acquire absolute path of current file
-    base_path = os.path.dirname(
-        os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
-    sys.path.insert(0, base_path)
+
 
     ######################### initialize random state  #########################
     dataset_name = DATA_NAME
@@ -58,11 +61,12 @@ if __name__ == '__main__':
     attack_budget_list = ATTACK_BUDGET_LIST
     explainer_method = "GNNExplainer"
     heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer", "GAT"] else None
+    tau_c = TAU_C
 
     np.random.seed(SEED_NUM)
     torch.manual_seed(SEED_NUM)
 
-    attack_budget_list = [5]
+    # attack_budget_list = [5]
     budget = attack_budget_list[0]
     time_name = datetime.now().strftime("%Y-%m-%d")
     # counterfactual explanation subgraph path
@@ -113,6 +117,16 @@ if __name__ == '__main__':
         data = LoanDecisionDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'ogbn-arxiv':
+        # Create PyG Data object
+        ogbn_arxiv_data = PygNodePropPredDataset(name="ogbn-arxiv", root=dataset_path)
+        pyg_data = ogbn_arxiv_data[0]
+        pyg_data.edge_index = to_undirected(pyg_data.edge_index)
+        pyg_data.y = pyg_data.y.view(-1).long()
+        # Create deeprobust Data object
+        data = OGBNArxivDataset(ogbn_arxiv_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:
         adj, features, labels = None, None, None
         idx_train, idx_val, idx_test = None, None, None
@@ -123,9 +137,21 @@ if __name__ == '__main__':
         file_path = os.path.join(model_save_path, 'gcn_model.pth')
         gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
                                    with_bias, gcn_layer)
-        dense_adj = torch.tensor(adj.toarray())
-        norm_adj = normalize_adj(dense_adj)
-        pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+        if dataset_name != "ogbn-arxiv":
+            dense_adj = torch.tensor(adj.toarray())
+            norm_adj = normalize_adj(dense_adj)
+            pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+        else:
+            output_path = os.path.join(model_save_path, 'pre_output.pikle')
+            if os.path.exists(output_path):
+                with open(output_path, "rb") as fr:
+                    result = pickle.load(fr)
+                    pre_output, target_node_id = result["pre_output"], result["target_node_id"]
+            else:
+                pre_output, target_node_id = evaluate_test_data(gnn_model, data, pyg_data, gcn_layer)
+                result = {"pre_output": pre_output, "target_node_id": target_node_id}
+                with open(output_path, "wb") as fw:
+                    pickle.dump(result, fw)
     elif test_model == 'GraphTransformer':
         file_path = os.path.join(model_save_path, 'graphTransformer_model.pth')
         gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
@@ -150,6 +176,8 @@ if __name__ == '__main__':
         pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
     ######################### select test nodes  #########################
+    if dataset_name == "ogbn-arxiv":
+        idx_test = target_node_id
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
@@ -168,7 +196,7 @@ if __name__ == '__main__':
     mis_cases = 0
     for target_node in tqdm(target_node_list):
         cf_example, time_cost = generate_gnnexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_data, explainer,
-                                                                  gnn_model, pre_output, dataset_name, budget=budget)
+                                                                  gnn_model, pre_output, dataset_name, budget=budget, output_idx=idx_test)
         # print(cf_example)
         print("Time for one example: {:.4f}s".format(time_cost))
         time_list.append(time_cost)

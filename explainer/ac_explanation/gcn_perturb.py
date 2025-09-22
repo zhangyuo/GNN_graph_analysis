@@ -71,10 +71,10 @@ class SignedMaskPerturbation(nn.Module):
         # sub_adj = self.extended_sub_adj[lhop_node_index, :][:, lhop_node_index]
         # init_value = -0.8  # GCN:-0.5 GraphConv:-1.0 GraphTransformer: -0.8
         init_value = {
-            "GCN": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5},
-            "GraphTransformer": {"cora": -0.8, "BA-SHAPES": -0.6, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8},
-            "GraphConv": {"cora": -1.0, "BA-SHAPES": -1.0, "TREE-CYCLES": -1.0, "Loan-Decision": -1.0},
-            "GAT": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8}
+            "GCN": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5, "ogbn-arxiv": -0.5},
+            "GraphTransformer": {"cora": -0.8, "BA-SHAPES": -0.6, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8, "ogbn-arxiv": -0.8},
+            "GraphConv": {"cora": -1.0, "BA-SHAPES": -1.0, "TREE-CYCLES": -1.0, "Loan-Decision": -1.0, "ogbn-arxiv": -1.0},
+            "GAT": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8, "ogbn-arxiv": -0.8}
         }[self.test_model][self.dataset_name]
         init_value += 0.01*torch.randn(1).item()
         ones_indices = torch.nonzero(self.extended_sub_adj == 1)
@@ -89,10 +89,10 @@ class SignedMaskPerturbation(nn.Module):
         # 遍历所有attack_nodes，针对无现有边场景倾向添加，但需要抑制加边
         # init_value = 0.8  # GCN：0.4 GraphConv:0.55 GraphTransformer: 0.8
         init_value = {
-            "GCN": {"cora": 0.4, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.4, "Loan-Decision": 0.4},
-            "GraphTransformer": {"cora": 0.8, "BA-SHAPES": 0.6, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8},
-            "GraphConv": {"cora": 0.55, "BA-SHAPES": 0.55, "TREE-CYCLES": 0.55, "Loan-Decision": 0.55},
-            "GAT": {"cora": 0.8, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8}
+            "GCN": {"cora": 0.4, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.4, "Loan-Decision": 0.4, "ogbn-arxiv": 0.4},
+            "GraphTransformer": {"cora": 0.8, "BA-SHAPES": 0.6, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8, "ogbn-arxiv": 0.8},
+            "GraphConv": {"cora": 0.55, "BA-SHAPES": 0.55, "TREE-CYCLES": 0.55, "Loan-Decision": 0.55, "ogbn-arxiv": 0.55},
+            "GAT": {"cora": 0.8, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8, "ogbn-arxiv": 0.8}
         }[self.test_model][self.dataset_name]
         init_value -= 0.01 * torch.randn(1).item()
         for i in attack_nodes_idx:

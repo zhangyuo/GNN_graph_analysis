@@ -82,7 +82,7 @@ def gnnexplainer_subgraph(explainer, pyg_data, target_node, labels, features,
     return explanation_subgraph
 
 
-def generate_gnnexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_data, explainer, gnn_model, pre_output, dataset_name, budget=5):
+def generate_gnnexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_data, explainer, gnn_model, pre_output, dataset_name, budget=5, output_idx=None):
     start_time = time.time()
     # generate explanation for target node from specified explainer
     subset, edge_index_sub, mapping, _ = k_hop_subgraph(
@@ -169,7 +169,10 @@ def generate_gnnexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_da
     cf_adj = sub_adj.clone()
     explanation_size = 0
     removed_edges = []
-    target_node_label = pre_output[target_node].argmax().item()
+    if dataset_name == 'ogbn-arxiv':
+        target_node_label = pre_output[output_idx.index(target_node)].argmax().item()
+    else:
+        target_node_label = pre_output[target_node].argmax().item()
     # norm_adj = normalize_adj(sub_adj)
     # target_node_label_1 = gnn_model.forward(x_sub, norm_adj)[target_new_id].argmax().item()
 

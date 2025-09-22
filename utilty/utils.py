@@ -33,15 +33,18 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
         "BA-SHAPES": 10,
         "TREE-CYCLES": 20,
         "Loan-Decision": 20,
-        "ogbn-arxiv": 5
+        "ogbn-arxiv": 1
     }[dataset_name]
     if attack_type is None:
         pass
     else:
         margin_dict_correct = {}
         margin_dict_incorrect = {}
-        for idx in idx_test:
-            margin = classification_margin(ori_output[idx], labels[idx])
+        for num, idx in enumerate(idx_test):
+            if dataset_name == "ogbn-arxiv":
+                margin = classification_margin(ori_output[num], labels[idx])
+            else:
+                margin = classification_margin(ori_output[idx], labels[idx])
             if margin < 0:  # only keep the nodes correctly classified
                 margin_dict_incorrect[idx] = margin
             else:
@@ -51,13 +54,20 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
         high = []
         low = []
         other = []
-        sample_num = 4
+        # sample_num = 1
+
         for class_num in set(labels):
             class_num_sorted_margins = [x for x, y in sorted_margins if labels[x] == class_num]
             high += [x for x in class_num_sorted_margins[: sample_num]]
             low += [x for x in class_num_sorted_margins[-sample_num:]]
             other_0 = [x for x in class_num_sorted_margins[sample_num: -sample_num]]
-            other += np.random.choice(other_0, 2*sample_num, replace=False).tolist()
+            if len(other_0) > 0:
+                try:
+                    other += np.random.choice(other_0, 2 * sample_num, replace=False).tolist()
+                except:
+                    other += np.random.choice(other_0, 2 * sample_num, replace=True).tolist()
+            else:
+                other += np.random.choice(other_0, len(other_0), replace=False).tolist()
             # if len(other_0) > 20:
             #     other += np.random.choice(other_0, sample_num, replace=True).tolist()
             # elif len(other_0) > 0:
@@ -73,7 +83,7 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
         high = []
         low = []
         other = []
-        sample_num = 6
+        # sample_num = 1
         for class_num in set(labels):
             class_num_sorted_margins = [x for x, y in sorted_margins if labels[x] == class_num]
             high += [x for x in class_num_sorted_margins[: sample_num]]
@@ -81,9 +91,9 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
             other_0 = [x for x in class_num_sorted_margins[sample_num: -sample_num]]
             if len(other_0) > 0:
                 try:
-                    other += np.random.choice(other_0, 2*sample_num, replace=False).tolist()
+                    other += np.random.choice(other_0, 2 * sample_num, replace=False).tolist()
                 except:
-                    other += np.random.choice(other_0, 2*sample_num, replace=True).tolist()
+                    other += np.random.choice(other_0, 2 * sample_num, replace=True).tolist()
             else:
                 other += np.random.choice(other_0, len(other_0), replace=False).tolist()
             # if len(other_0) > 20:
@@ -401,7 +411,7 @@ class OGBNArxivDataset(Dataset):
         self.adj = self.edge_index_to_adj(self.pyg_data.edge_index)
         # self.orgi_adj = self.edge_index_to_adj(self.pyg_data.orgi_edge_index)
         self.features = efficient_tensor_to_csr(self.pyg_data.x)
-        self.labels = self.pyg_data.y.numpy()
+        self.labels = self.pyg_data.y.view(-1).long().numpy()
 
         # 创建训练0.54-90941/验证0.18-29799/测试掩码0.28-48302
         split_idx = ogbn_arxiv_data.get_idx_split()
@@ -437,3 +447,33 @@ def efficient_tensor_to_csr(features):
 
     # 直接创建CSR矩阵
     return sp.csr_matrix(features_np)
+
+
+import torch
+import scipy.sparse as sp
+
+
+# 1. adj: PyG edge_index -> scipy.sparse
+def edge_index_to_adj(edge_index, num_nodes):
+    # COO 格式
+    row, col = edge_index
+    data = torch.ones(row.size(0))
+    adj = sp.coo_matrix(
+        (data.numpy(), (row.numpy(), col.numpy())),
+        shape=(num_nodes, num_nodes)
+    )
+    return adj.tocsr()
+
+
+# 2. features: torch.Tensor -> scipy.sparse
+def tensor_to_sparse(features):
+    if torch.is_tensor(features):
+        features = features.numpy()
+    return sp.csr_matrix(features)
+
+
+# 3. labels: torch.Tensor -> numpy
+def tensor_to_numpy(labels):
+    if torch.is_tensor(labels):
+        labels = labels.numpy()
+    return labels

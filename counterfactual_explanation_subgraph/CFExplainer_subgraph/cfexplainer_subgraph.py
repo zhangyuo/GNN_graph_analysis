@@ -16,16 +16,16 @@ res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(
     os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
 sys.path.insert(0, base_path)
-
+from ogb.nodeproppred import PygNodePropPredDataset
 import time
 from datetime import datetime
 
 import torch
 import numpy as np
 from deeprobust.graph.data import Dataset
-from torch_geometric.utils import k_hop_subgraph, subgraph, to_dense_adj, dense_to_sparse
+from torch_geometric.utils import k_hop_subgraph, subgraph, to_dense_adj, dense_to_sparse, to_undirected
 from tqdm import tqdm
-
+from counterfactual_explanation_subgraph.ACExplainer_subgraph.acexplainer_subgraph import evaluate_test_data
 from model.DenseGAT import load_DenseGATNet_model
 from model.GAT import load_GATNet_model
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
@@ -35,7 +35,7 @@ from model.GraphConv import load_GraphConv_model
 from model.GraphTransformer import load_GraphTransforer_model
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
-    TreeCyclesDataset, LoanDecisionDataset
+    TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset
 import torch.nn.functional as F
 
 
@@ -63,14 +63,16 @@ def attack_cfexplanation_subgraph_generate(target_node_list, attack_subgraph, fe
 
 def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels, output, model, device, idx_test,
                                   gcn_layer, with_bias, counterfactual_explanation_subgraph_path, test_model,
-                                  dataset_name,
-                                  heads_num):
+                                  dataset_name, heads_num, output_idx=None):
     start = time.time()
     sub_adj, sub_edge_index, sub_feat, sub_labels, node_dict = get_neighbourhood(target_node, edge_index,
                                                                                  features, labels, gcn_layer)
     new_idx = node_dict[target_node]
     # sub_pyg_data = dr_data_to_pyg_data(sub_adj, sub_feat, sub_labels)
-    print("Output original model, full adj: {}".format(output[target_node]))
+    if dataset_name == 'ogbn-arxiv':
+        print("Output original model, full adj: {}".format(output[output_idx.index(target_node)]))
+    else:
+        print("Output original model, full adj: {}".format(output[target_node]))
     norm_sub_adj = normalize_adj(sub_adj)
     if test_model == "GCN":
         print("Output original model, sub adj: {}".format(model.forward(sub_feat, norm_sub_adj)[new_idx]))
@@ -80,13 +82,18 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
             model.forward(sub_feat, edge_index, edge_weight=edge_weight)[new_idx]))
     # output = gnn_model.predict(features=features, adj=modified_adj)
     # Need to instantitate new cf model every time because size of P changes based on size of sub_adj
+
+    if dataset_name == "ogbn-arxiv":
+        y_pred_orig = output.argmax(dim=1)[output_idx.index(target_node)]
+    else:
+        y_pred_orig = output.argmax(dim=1)[target_node]
     explainer = CFExplainer(model=model,
                             sub_adj=sub_adj,
                             sub_feat=sub_feat,
                             n_hid=HIDDEN_CHANNELS,
                             dropout=DROPOUT,
                             sub_labels=sub_labels,
-                            y_pred_orig=output.argmax(dim=1)[target_node],
+                            y_pred_orig=y_pred_orig,
                             num_classes=labels.max().item() + 1,
                             beta=BETA,
                             device=device,
@@ -139,7 +146,6 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
 
 
 if __name__ == '__main__':
-
 
     ######################### initialize random state  #########################
     dataset_name = DATA_NAME
@@ -210,6 +216,16 @@ if __name__ == '__main__':
         data = LoanDecisionDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'ogbn-arxiv':
+        # Create PyG Data object
+        ogbn_arxiv_data = PygNodePropPredDataset(name="ogbn-arxiv", root=dataset_path)
+        pyg_data = ogbn_arxiv_data[0]
+        pyg_data.edge_index = to_undirected(pyg_data.edge_index)
+        pyg_data.y = pyg_data.y.view(-1).long()
+        # Create deeprobust Data object
+        data = OGBNArxivDataset(ogbn_arxiv_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:
         adj, features, labels = None, None, None
         idx_train, idx_val, idx_test = None, None, None
@@ -221,9 +237,21 @@ if __name__ == '__main__':
         file_path = os.path.join(model_save_path, 'gcn_model.pth')
         gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
                                    with_bias, gcn_layer)
-        dense_adj = torch.tensor(adj.toarray())
-        norm_adj = normalize_adj(dense_adj)
-        pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+        if dataset_name != "ogbn-arxiv":
+            dense_adj = torch.tensor(adj.toarray())
+            norm_adj = normalize_adj(dense_adj)
+            pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+        else:
+            output_path = os.path.join(model_save_path, 'pre_output.pikle')
+            if os.path.exists(output_path):
+                with open(output_path, "rb") as fr:
+                    result = pickle.load(fr)
+                    pre_output, target_node_id = result["pre_output"], result["target_node_id"]
+            else:
+                pre_output, target_node_id = evaluate_test_data(gnn_model, data, pyg_data, gcn_layer)
+                result = {"pre_output": pre_output, "target_node_id": target_node_id}
+                with open(output_path, "wb") as fw:
+                    pickle.dump(result, fw)
     elif test_model == 'GraphTransformer':
         file_path = os.path.join(model_save_path, 'graphTransformer_model.pth')
         gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
@@ -242,13 +270,15 @@ if __name__ == '__main__':
     elif test_model == 'GAT':
         file_path = os.path.join(model_save_path, 'gat_model.pth')
         gnn_model = load_GATNet_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
-                                           heads_num)
+                                      heads_num)
         dense_adj = torch.tensor(adj.toarray())
         norm_adj = normalize_adj(dense_adj)
         edge_index, edge_weight = dense_to_sparse(norm_adj)
         pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
     ######################### select test nodes  #########################
+    if dataset_name == "ogbn-arxiv":
+        idx_test = target_node_id
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
@@ -269,7 +299,8 @@ if __name__ == '__main__':
                                                                         gnn_model, device, idx_test, gcn_layer,
                                                                         with_bias,
                                                                         counterfactual_explanation_subgraph_path,
-                                                                        test_model, dataset_name, heads_num)
+                                                                        test_model, dataset_name, heads_num,
+                                                                        output_idx=idx_test)
         print("Time for {} epochs of one example: {:.4f}s".format(NUM_EPOCHS, time_cost))
         time_list.append(time_cost)
         cfexp_subgraph[target_node] = subgraph

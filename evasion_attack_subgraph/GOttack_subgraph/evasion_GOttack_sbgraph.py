@@ -12,17 +12,18 @@ import os
 import pickle
 import random
 import sys
+
 res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(
     os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
 sys.path.insert(0, base_path)
-from torch_geometric.utils import dense_to_sparse
-
+from ogb.nodeproppred import PygNodePropPredDataset
+from torch_geometric.utils import dense_to_sparse, to_undirected, k_hop_subgraph
+from counterfactual_explanation_subgraph.ACExplainer_subgraph.acexplainer_subgraph import evaluate_test_data
 from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
 from model.GAT import load_GATNet_model
 from model.GraphConv import load_GraphConv_model
 from model.GraphTransformer import load_GraphTransforer_model
-
 
 import time
 import warnings
@@ -41,13 +42,13 @@ from deeprobust.graph.defense import GCN
 from deeprobust.graph.utils import classification_margin
 from config.config import *
 from utilty.utils import CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, normalize_adj, \
-    select_test_nodes
+    select_test_nodes, OGBNArxivDataset, edge_index_to_adj, tensor_to_sparse, tensor_to_numpy, compute_deg_diff, \
+    compute_motif_viol
 import torch.nn.functional as F
 
 warnings.filterwarnings("ignore")
 
 if __name__ == '__main__':
-
 
     ######################### initialize random state  #########################
     dataset_name = DATA_NAME
@@ -64,6 +65,7 @@ if __name__ == '__main__':
     attack_budget_list = ATTACK_BUDGET_LIST
     top_t = ATTACK_BUDGET_LIST[0]
     heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer", "GAT"] else None
+    tau_c = TAU_C
 
     np.random.seed(SEED_NUM)
     torch.manual_seed(SEED_NUM)
@@ -117,6 +119,16 @@ if __name__ == '__main__':
         data = LoanDecisionDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'ogbn-arxiv':
+        # Create PyG Data object
+        ogbn_arxiv_data = PygNodePropPredDataset(name="ogbn-arxiv", root=dataset_path)
+        pyg_data = ogbn_arxiv_data[0]
+        pyg_data.edge_index = to_undirected(pyg_data.edge_index)
+        pyg_data.y = pyg_data.y.view(-1).long()
+        # Create deeprobust Data object
+        data = OGBNArxivDataset(ogbn_arxiv_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     else:
         adj, features, labels = None, None, None
         idx_train, idx_val, idx_test = None, None, None
@@ -127,9 +139,21 @@ if __name__ == '__main__':
         file_path = os.path.join(model_save_path, 'gcn_model.pth')
         gnn_model = load_GCN_model(file_path, features, labels, nhid, dropout, device, lr, weight_decay,
                                    with_bias, gcn_layer)
-        dense_adj = torch.tensor(adj.toarray())
-        norm_adj = normalize_adj(dense_adj)
-        pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+        if dataset_name != "ogbn-arxiv":
+            dense_adj = torch.tensor(adj.toarray())
+            norm_adj = normalize_adj(dense_adj)
+            pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+        else:
+            output_path = os.path.join(model_save_path, 'pre_output.pikle')
+            if os.path.exists(output_path):
+                with open(output_path, "rb") as fr:
+                    result = pickle.load(fr)
+                    pre_output, target_node_id = result["pre_output"], result["target_node_id"]
+            else:
+                pre_output, target_node_id = evaluate_test_data(gnn_model, data, pyg_data, gcn_layer)
+                result = {"pre_output": pre_output, "target_node_id": target_node_id}
+                with open(output_path, "wb") as fw:
+                    pickle.dump(result, fw)
     elif test_model == 'GraphTransformer':
         file_path = os.path.join(model_save_path, 'graphTransformer_model.pth')
         gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
@@ -172,6 +196,8 @@ if __name__ == '__main__':
             torch.save(surrogate.state_dict(), file_path + 'surrogate.model')
 
     ######################### select test nodes  #########################
+    if dataset_name == "ogbn-arxiv":
+        idx_test = target_node_id
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
@@ -184,8 +210,95 @@ if __name__ == '__main__':
     time_list = []
     test_cf_examples = []
     mis_cases = 0
-    for target_node in tqdm(target_node_list):
+    for num_idx, target_node in enumerate(tqdm(target_node_list)):
+        # if num_idx != 17:
+        #     continue
         start_time = time.time()
+
+        # construct new subgraph: l+1 hop and attack nodes
+        new_idx_map_tgt_node = None
+        if dataset_name == "ogbn-arxiv":
+            # 1. 提取目标节点的l-hop子图
+            node_index, edge_index, mapping, _ = k_hop_subgraph(
+                node_idx=target_node,
+                num_hops=gcn_layer + 1,  # 覆盖GCN的感受野
+                edge_index=pyg_data.edge_index,
+                relabel_nodes=True,
+                num_nodes=pyg_data.edge_index.max() + 1
+            )
+
+            # because of big graph, sampling part of orbit nodes
+            df_orbit = df_orbit.loc[df_orbit['two_Orbit_type'] == '1518']
+            df_orbit = df_orbit.sample(n=1000, random_state=102)  # 固定随机种子，结果可复现
+            # df_orbit = pd.DataFrame(df_orbit.to_numpy()[node_index], columns=df_orbit.columns)
+            orbit_nodes_series = df_orbit['node_number']
+            orbit_nodes = torch.tensor(orbit_nodes_series.astype(int).values, dtype=torch.long,
+                                       device=node_index.device)
+            new_nodes = torch.cat([node_index, orbit_nodes], dim=0)
+            new_nodes = torch.unique(new_nodes, sorted=False)
+            # 记录目标节点在新子图中的索引（用于后续 reference）
+            if isinstance(target_node, torch.Tensor):
+                target_node_val = int(target_node.item())
+            else:
+                target_node_val = int(target_node)
+            tgt_pos_mask = (new_nodes == target_node_val).nonzero(as_tuple=True)[0]
+            tgt_node_map_new_idx = int(tgt_pos_mask.item()) if tgt_pos_mask.numel() > 0 else None
+
+            # 为了重标号，构建 full->new mapping array（vectorized，避免 Python 循环）
+            num_global_nodes = int(pyg_data.num_nodes) if hasattr(pyg_data, 'num_nodes') else int(pyg_data.x.size(0))
+            mapping_array = torch.full((num_global_nodes,), -1, dtype=torch.long, device=new_nodes.device)
+            mapping_array[new_nodes] = torch.arange(new_nodes.size(0), dtype=torch.long, device=new_nodes.device)
+
+            # 过滤全图 edge_index：只保留两端都在 new_nodes 的边
+            global_edge_index = pyg_data.edge_index.to(new_nodes.device)  # [2, E]
+
+            # 建立一个布尔掩码，标记哪些节点在 new_nodes 中
+            node_mask = torch.zeros(num_global_nodes, dtype=torch.bool, device=new_nodes.device)
+            node_mask[new_nodes] = True
+
+            # 过滤边：要求两端节点都在 new_nodes 中
+            mask = node_mask[global_edge_index[0]] & node_mask[global_edge_index[1]]
+            sub_edge_index = global_edge_index[:, mask]
+
+            # 重标号为 [0 .. n_sub-1]
+            sub_edge_index = mapping_array[sub_edge_index]  # shape [2, E_sub]
+            # 可选：如果你想保证无自环/无重复，可进行 remove_self_loops/ coalesce（视需要）
+
+            # 生成稠密邻接
+            n_sub = new_nodes.size(0)
+            data.adj = edge_index_to_adj(sub_edge_index, n_sub)
+
+            # data.features: features 对应 new_nodes（转换为 scipy csr）
+            data.features = tensor_to_sparse(pyg_data.x[new_nodes.cpu()])
+
+            # data.labels: numpy array 对应 new_nodes
+            data.labels = tensor_to_numpy(pyg_data.y[new_nodes.cpu()])
+
+            # 记录新的 mapping（可选），方便从 new-subgraph-index 映射回全图 node id
+            # new_idx_map_tgt_node: 如果你要从新索引找全局 id
+            new_idx_map_tgt_node = {int(i): int(new_nodes[i].item()) for i in range(n_sub)}
+            target_node = tgt_node_map_new_idx
+
+            # 把 df_orbit 的 node_number 转成 tensor
+            orbit_old_ids = torch.tensor(
+                df_orbit['node_number'].astype(int).values,
+                dtype=torch.long,
+                device=mapping_array.device
+            )
+            # 用 mapping_array 查新 ID
+            orbit_new_ids = mapping_array[orbit_old_ids].cpu().numpy()
+            # 把 df_orbit 里的 node_number 更新为新的索引
+            df_orbit = df_orbit.copy()
+            df_orbit['node_number'] = orbit_new_ids
+            df_orbit.index = orbit_new_ids
+
+            node_index_old = node_index.tolist()
+            node_index_tensor = torch.tensor(node_index_old, dtype=torch.long, device=mapping_array.device)
+
+            # 映射为新子图 ID
+            node_index = mapping_array[node_index_tensor].cpu()
+
+        # print(len(data.labels))
         attack_model = OrbitAttack(surrogate, df_orbit, nnodes=data.adj.shape[0], device=device, top_t=top_t,
                                    gcn_layer=gcn_layer)  # initialize the attack model
         attack_model = attack_model.to(device)
@@ -200,19 +313,31 @@ if __name__ == '__main__':
         removed_edges = []
 
         for index, (u, v) in enumerate(edited_edges):
-            if extended_adj[u,v] == 0.0:
+            if extended_adj[u, v] == 0.0:
                 added_edges.append(edited_edges[index])
             else:
                 removed_edges.append(edited_edges[index])
 
         norm_adj = normalize_adj(cf_adj)
         if test_model == "GCN":
-            y_new_output = gnn_model.forward(pyg_data.x, norm_adj)
+            if dataset_name == "ogbn-arxiv":
+                feat_dense = data.features.toarray()
+                feat_tensor = torch.tensor(feat_dense, dtype=torch.float32, device=device)
+                y_new_output = gnn_model.forward(feat_tensor, norm_adj)
+            else:
+                y_new_output = gnn_model.forward(pyg_data.x, norm_adj)
         else:
             edge_index, edge_weight = dense_to_sparse(norm_adj)
             y_new_output = gnn_model.forward(pyg_data.x, edge_index, edge_weight=edge_weight)
-        target_node_label = pre_output[target_node].argmax().item()
+
+        if dataset_name == "ogbn-arxiv":
+            target_node_label = pre_output[idx_test.index(target_node_val)].argmax().item()
+        else:
+            target_node_label = pre_output[target_node].argmax().item()
+
         new_idx_label = y_new_output[target_node].argmax().item()
+
+        L_plau = α2 * compute_deg_diff(extended_adj, cf_adj) + α3 * compute_motif_viol(extended_adj, cf_adj, tau_c)
 
         if new_idx_label != target_node_label:
             print("find counterfactual explanation")
@@ -226,9 +351,12 @@ if __name__ == '__main__':
                 "original_pred": target_node_label,
                 "new_pred": new_idx_label,
                 # "extended_adj": extended_adj,
-                "cf_adj": attack_model.modified_adj,
+                "cf_adj": cf_adj if dataset_name!='ogbn-arxiv' else None,
                 # "extended_feat": pyg_data.x,
-                # "sub_labels": pyg_data.y
+                # "sub_labels": pyg_data.y,
+                "y_new_output": y_new_output[target_node],
+                "new_idx_map_tgt_node": new_idx_map_tgt_node,
+                "L_plau": L_plau
             }
         else:
             print("Don't find counterfactual explanation")
@@ -242,9 +370,12 @@ if __name__ == '__main__':
                 "original_pred": target_node_label,
                 "new_pred": new_idx_label,
                 # "extended_adj": extended_adj,
-                "cf_adj": attack_model.modified_adj,
+                "cf_adj": cf_adj if dataset_name!='ogbn-arxiv' else None,
                 # "extended_feat": pyg_data.x,
-                # "sub_labels": pyg_data.y
+                # "sub_labels": pyg_data.y,
+                "y_new_output": y_new_output[target_node],
+                "new_idx_map_tgt_node": new_idx_map_tgt_node,
+                "L_plau": L_plau
             }
         time_cost = time.time() - start_time
 

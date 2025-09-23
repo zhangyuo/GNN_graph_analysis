@@ -16,6 +16,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch_geometric.utils import dense_to_sparse
 from tqdm import tqdm
 
+from config.config import PRUNING
 from utilty.utils import normalize_adj
 from explainer.ac_explanation.gcn_perturb import GNNPerturb
 
@@ -226,18 +227,28 @@ class ACExplainer:
 
         if best_delta_A is not None:
             # 后剪枝
-            pruned_delta_A = self.minimality_pruning(best_delta_A, perturb_layer, full_mask)
-            final_result = {
-                "success": True,
-                "delta_A": pruned_delta_A,  # 使用剪枝后的扰动
-                "cf_adj": perturb_layer.build_perturbed_adj(
-                    self.extended_sub_adj,
-                    pruned_delta_A
-                ),
-                "original_pred": self.y_pred_orig,
-                "new_pred": self._validate_pruning(pruned_delta_A, perturb_layer),  # 验证预测
-                "plau_loss": best_plau_loss
-            }
+            if PRUNING:
+                pruned_delta_A = self.minimality_pruning(best_delta_A, perturb_layer, full_mask)
+                final_result = {
+                    "success": True,
+                    "delta_A": pruned_delta_A,  # 使用剪枝后的扰动
+                    "cf_adj": perturb_layer.build_perturbed_adj(
+                        self.extended_sub_adj,
+                        pruned_delta_A
+                    ),
+                    "original_pred": self.y_pred_orig,
+                    "new_pred": self._validate_pruning(pruned_delta_A, perturb_layer),  # 验证预测
+                    "plau_loss": best_plau_loss
+                }
+            else:
+                final_result = {
+                    "success": True,
+                    "delta_A": best_delta_A,
+                    "cf_adj": best_cf_adj,
+                    "original_pred": self.y_pred_orig,
+                    "new_pred": best_pred,
+                    "plau_loss": best_plau_loss
+                }
         else:
             final_result = {
                 "success": False,

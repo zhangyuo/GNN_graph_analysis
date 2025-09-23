@@ -255,7 +255,7 @@ def compute_feat_sim(target_node_feat, edited_node_feat):
     return feat_sim
 
 
-def clustering_coefficient(adj_tensor: torch.Tensor) -> torch.Tensor:
+def clustering_coefficient(adj_tensor: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """
     使用 PyTorch 近似计算无向图的局部聚类系数（向量化实现）。
     注意：这是对传统聚类系数的一种近似，主要用于训练和损失计算。
@@ -274,9 +274,12 @@ def clustering_coefficient(adj_tensor: torch.Tensor) -> torch.Tensor:
     max_possible_edges = degrees * (degrees - 1) / 2.0
 
     # 避免除以零：对于度小于2的节点，聚类系数设为0
-    clustering_coeffs = torch.zeros_like(degrees, dtype=torch.float32)
-    valid_mask = (degrees > 1)
-    clustering_coeffs[valid_mask] = triangles[valid_mask] / max_possible_edges[valid_mask]
+    # clustering_coeffs = torch.zeros_like(degrees, dtype=torch.float32)
+    # valid_mask = (degrees > 1)
+    # clustering_coeffs[valid_mask] = triangles[valid_mask] / max_possible_edges[valid_mask]
+
+    clustering_coeffs = triangles / (max_possible_edges + eps)
+    clustering_coeffs = torch.where(degrees > 1, clustering_coeffs, torch.zeros_like(clustering_coeffs))
 
     return clustering_coeffs
 

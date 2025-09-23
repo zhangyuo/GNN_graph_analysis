@@ -399,17 +399,19 @@ class GNNPerturb(nn.Module):
         #         attention_loss += torch.mean(torch.abs(module.att.weight))
 
         # 稀疏损失 (L0范数)
-        cf_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
+        # cf_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
         # cf_adj.requires_grad = True  # Need to change this otherwise loss_graph_dist has no gradient
-        # Number of edges changed (symmetrical) 图结构变化量（边改变数）
-        # dist_loss = sum(sum(abs(cf_adj - self.extended_sub_adj))) / 2
+        # # dist_loss = sum(sum(abs(cf_adj - self.extended_sub_adj))) / 2
+        # deletion_mask = (self.delta_A == -1) & (self.extended_sub_adj == 1)
+        # num_deletions = deletion_mask.sum() / 2
+        # addition_mask = (self.delta_A == 1) & (self.extended_sub_adj == 0)
+        # num_additions = addition_mask.sum() / 2
 
-        deletion_mask = (self.delta_A == -1) & (self.extended_sub_adj == 1)
-        num_deletions = deletion_mask.sum() / 2
-        addition_mask = (self.delta_A == 1) & (self.extended_sub_adj == 0)
-        num_additions = addition_mask.sum() / 2
-
-        dist_loss = 1 * num_deletions + 1 * num_additions
+        cf_adj = self.perturb_layer.ste_perturbed_adj(self.extended_sub_adj, self.full_mask)
+        if self.lambda_dist == 0:
+            dist_loss = torch.tensor(0.0)
+        else:
+            dist_loss = torch.sum(torch.abs(cf_adj - self.extended_sub_adj)) / 2
 
         # 现实性损失
         if self.lambda_plau == 0:
@@ -431,24 +433,31 @@ class GNNPerturb(nn.Module):
         loss_components_4 = torch.tensor(0.0)
 
         # 1. 特征相似度惩罚 (仅对添加边)
-        add_mask = (self.delta_A > 0.5)
-        if add_mask.sum() > 0:
-            # 计算特征相似度
-            target_feat = self.sub_feat[self.node_idx]
-            for i in range(self.extended_sub_adj.size(0)):
-                if add_mask[self.node_idx, i]:
-                    feat_sim = compute_feat_sim(target_feat, self.sub_feat[i])
-                    loss_components_1 = loss_components_1 + (1 - feat_sim) * self.α1
-            loss_components_1 = loss_components_1 / add_mask.sum()
+        # add_mask = (self.delta_A > 0.5)
+        # if add_mask.sum() > 0:
+        #     # 计算特征相似度
+        #     target_feat = self.sub_feat[self.node_idx]
+        #     for i in range(self.extended_sub_adj.size(0)):
+        #         if add_mask[self.node_idx, i]:
+        #             feat_sim = compute_feat_sim(target_feat, self.sub_feat[i])
+        #             loss_components_1 = loss_components_1 + (1 - feat_sim) * self.α1
+        #     loss_components_1 = loss_components_1 / add_mask.sum()
 
         # 2. 度分布惩罚
         orig_sub_adj = self.extended_sub_adj
-        edited_sub_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
-        deg_diff = compute_deg_diff(orig_sub_adj, edited_sub_adj)
+        # edited_sub_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
+        # deg_diff = compute_deg_diff(orig_sub_adj, edited_sub_adj)
+
+        cf_adj_soft = self.perturb_layer.ste_perturbed_adj(self.extended_sub_adj, self.full_mask)
+        deg_diff = compute_deg_diff(orig_sub_adj, cf_adj_soft)
+
         loss_components_2 = deg_diff * self.α2
 
         # 3. penalty of clustering coefficients drastic changes
-        motif_violation = compute_motif_viol(orig_sub_adj, edited_sub_adj, self.tau_c)
+        # motif_violation = compute_motif_viol(orig_sub_adj, edited_sub_adj, self.tau_c)
+
+        motif_violation = compute_motif_viol(orig_sub_adj, cf_adj_soft, self.tau_c)
+
         loss_components_3 = motif_violation * self.α3
 
         # 4. domain-specific constraint
@@ -468,8 +477,6 @@ class GNNPerturb(nn.Module):
         #     sem_cost = violation_count / add_mask.sum()
         #     loss_components_4 = loss_components_4 + torch.tensor(sem_cost, dtype=float) * self.α4
 
-        # loss_components = loss_components_1 + loss_components_2 + loss_components_3 + loss_components_4
-
-        loss_components = loss_components_1 + loss_components_2 + loss_components_3
+        loss_components = loss_components_1 + loss_components_2 + loss_components_3 + loss_components_4
 
         return loss_components

@@ -168,8 +168,8 @@ header = ["target_node", "new_idx", "cf_adj", "sub_adj", "y_pred_orig", "y_pred_
           "sub_labels", "loss_graph_dist", "sub_feat", "success"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-09-22'
-counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
+time_name = '2025-09-24'
+counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}-{SEED_NUM}'
 
 with open(
         counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_beta{BETA}_mom{N_Momentum}_epochs{NUM_EPOCHS}_seed{SEED_NUM}",

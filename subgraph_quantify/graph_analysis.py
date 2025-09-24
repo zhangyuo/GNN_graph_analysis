@@ -365,7 +365,7 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
     # transform = RandomNodeSplit(split='train_rest', num_val=0.2, num_test=0.2)
     # pyg_data = transform(pyg_data)
 
-    explainer = PGExplainer(model, emb_dim=64, hidden_dim=32, lr=0.01, epochs=20, return_type='log_probs')
+    # explainer = PGExplainer(model, emb_dim=64, hidden_dim=32, lr=0.01, epochs=20, return_type='log_probs')
 
     # Create explainer (using PyG-formatted data)
     explainer = Explainer(

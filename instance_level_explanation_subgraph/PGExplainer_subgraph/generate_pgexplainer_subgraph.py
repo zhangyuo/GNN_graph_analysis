@@ -106,7 +106,10 @@ def generate_pgexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_dat
     cf_adj = sub_adj.clone()
     explanation_size = 0
     removed_edges = []
-    target_node_label = pre_output[output_idx.index(target_node)].argmax().item()
+    if dataset_name == "ogbn-arxiv":
+        target_node_label = pre_output[output_idx.index(target_node)].argmax().item()
+    else:
+        target_node_label = pre_output[target_node].argmax().item()
     # norm_adj = normalize_adj(sub_adj)
     # target_node_label_1 = gnn_model.forward(x_sub, norm_adj)[target_new_id].argmax().item()
 

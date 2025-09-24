@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/8/6 13:16
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : gnn_model_train.py
 # @Software : PyCharm
 # @Desc     : target node for node classification on GNN model

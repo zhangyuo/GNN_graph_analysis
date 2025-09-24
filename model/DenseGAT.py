@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/9/18 22:36
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : DenseGAT.py
 # @Software : PyCharm
 # @Desc     :

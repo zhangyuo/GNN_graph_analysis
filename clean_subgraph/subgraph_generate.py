@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/25 14:23
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : subgraph_generate.py
 # @Software : PyCharm
 # @Desc     :

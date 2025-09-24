@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/24 11:47
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : generate_gnnexplainer_subgraph.py
 # @Software : PyCharm
 # @Desc     :

@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/8/27 20:19
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : acexplainer_subgraph.py
 # @Software : PyCharm
 # @Desc     :

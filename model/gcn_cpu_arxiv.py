@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/9/12 09:22
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : gcn_cpu_arxiv.py
 # @Software : PyCharm
 # @Desc     :

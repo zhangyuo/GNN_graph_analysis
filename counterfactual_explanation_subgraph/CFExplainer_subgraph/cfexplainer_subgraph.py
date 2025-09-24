@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/7/17 12:43
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : cfexplainer_subgraph.py
 # @Software : PyCharm
 # @Desc     :

@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/23 14:22
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : gradient_sensitivity.py
 # @Software : PyCharm
 # @Desc     :

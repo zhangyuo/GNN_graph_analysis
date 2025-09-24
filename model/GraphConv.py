@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/9/17 10:53
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : GraphConv.py
 # @Software : PyCharm
 # @Desc     : GraphConv based GNN model with edge_weight support

@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/23 14:19
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : maximum_common_subgraph.py
 # @Software : PyCharm
 # @Desc     : Computes and visualizes Maximum Common Subgraph (MCS) with enhanced labeling

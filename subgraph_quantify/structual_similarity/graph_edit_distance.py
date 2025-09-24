@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/23 14:18
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : graph_edit_distance.py
 # @Software : PyCharm
 # @Desc     :

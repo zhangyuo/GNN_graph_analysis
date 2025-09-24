@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/19 11:38
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : evasion_GOttack.py
 # @Software : PyCharm
 # @Desc     :

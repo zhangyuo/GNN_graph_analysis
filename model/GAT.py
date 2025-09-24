@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/9/17 17:06
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : GAT.py
 # @Software : PyCharm
 # @Desc     :

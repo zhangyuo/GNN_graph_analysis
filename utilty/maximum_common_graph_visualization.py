@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/24 16:39
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : maximum_common_graph_visualization.py
 # @Software : PyCharm
 # @Desc     :

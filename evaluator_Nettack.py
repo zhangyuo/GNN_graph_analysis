@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/9/4 17:17
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : evaluator_gnnexplainer.py
 # @Software : PyCharm
 # @Desc     :

@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/22 14:37
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : explanation_visualization.py
 # @Software : PyCharm
 # @Desc     : GNN Explanation Subgraph Visualization Tool - Enhanced Version

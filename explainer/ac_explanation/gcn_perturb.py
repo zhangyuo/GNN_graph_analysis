@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/8/27 20:17
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : gcn_perturb.py
 # @Software : PyCharm
 # @Desc     :

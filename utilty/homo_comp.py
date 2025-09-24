@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/9/24 13:08
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : homo_comp.py
 # @Software : PyCharm
 # @Desc     :

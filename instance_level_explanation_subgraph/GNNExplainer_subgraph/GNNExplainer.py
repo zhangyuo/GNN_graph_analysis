@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/20 11:31
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : GNNExplainer.py
 # @Software : PyCharm
 # @Desc     :

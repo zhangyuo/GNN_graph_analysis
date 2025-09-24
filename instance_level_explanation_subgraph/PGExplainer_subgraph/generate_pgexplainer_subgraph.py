@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/9/10 11:44
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : generate_pgexplainer_subgraph.py
 # @Software : PyCharm
 # @Desc     :

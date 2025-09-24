@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/7/15 19:37
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : evasion_PGDattack.py
 # @Software : PyCharm
 # @Desc     :

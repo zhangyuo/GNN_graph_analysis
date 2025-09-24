@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/20 15:22
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : test_model.py
 # @Software : PyCharm
 # @Desc     :

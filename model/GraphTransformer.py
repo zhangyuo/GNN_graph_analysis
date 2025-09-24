@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/9/16 14:49
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : GraphTransformer.py
 # @Software : PyCharm
 # @Desc     :

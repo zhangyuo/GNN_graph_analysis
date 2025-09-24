@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/7/3 09:52
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : poison_GOttack.py
 # @Software : PyCharm
 # @Desc     :

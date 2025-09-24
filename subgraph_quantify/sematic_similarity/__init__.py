@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/23 14:15
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : __init__.py.py
 # @Software : PyCharm
 # @Desc     :

@@ -2,8 +2,8 @@
 # coding:utf-8
 """
 # @Time     : 2025/6/25 14:24
-# @Author   : Yu Zhang
-# @Email    : yuzhang@cs.aau.dk
+# @Author   : **
+# @Email    : **@**
 # @File     : clean_subgraph_visualization.py
 # @Software : PyCharm
 # @Desc     :

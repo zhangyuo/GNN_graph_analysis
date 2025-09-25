@@ -12,13 +12,13 @@
 TEST_MODEL = "GCN"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
 
 # dataset
-DATA_NAME = "ogbn-arxiv"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
+DATA_NAME = "cora"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
 
 # random seed
-SEED_NUM = 104  # first experiment is 102, 103, 104
+SEED_NUM = 103  # first experiment is 102, 103, 104
 
 ################ Explainer parameters ################
 EXPLANATION_TYPE = 'counterfactual'  # ['instance-level', 'class-level', 'counterfactual']
@@ -233,7 +233,7 @@ TAU_MINUS = -0.5  # 减边阈值  GCN -0.5
 α3 = 1.0  # 聚类系数变化惩罚项权重1.0
 α4 = 0  # 领域知识破坏惩罚项权重0
 TAU_C = 0  # 聚类系数变化容忍度阈值0
-PRUNING = True  # Posthoc Pruning
+PRUNING = False  # Posthoc Pruning
 
 ################ Evaluation Metrics ################################
 k = 1  # 1

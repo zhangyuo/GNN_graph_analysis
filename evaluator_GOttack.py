@@ -168,8 +168,8 @@ header = ['success', 'target_node', 'new_idx', 'added_edges', 'removed_edges', '
 
 # counterfactual explanation subgraph path
 # attack_budget_list = [15]
-time_name = '2025-09-22'
-counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/attack_subgraph_{test_model}/{attack_type}_{attack_method}_{dataset_name}_budget{attack_budget_list}'
+time_name = '2025-09-25'
+counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/attack_subgraph_{test_model}/{attack_type}_{attack_method}_{dataset_name}_budget{attack_budget_list}-{SEED_NUM}'
 
 with open(
         counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_seed{SEED_NUM}",
@@ -226,7 +226,10 @@ else:
     orig_sub_adj = torch.tensor(data.adj.toarray())
     sub_feat = pyg_data.x
     for i in tqdm(df.index):
-        edited_sub_adj = torch.tensor(df["cf_adj"][i].toarray())
+        try:
+            edited_sub_adj = torch.tensor(df["cf_adj"][i].toarray())
+        except:
+            edited_sub_adj = torch.tensor(df["cf_adj"][i])
         edited_norm_adj = normalize_adj(edited_sub_adj)
         if test_model == "GCN":
             new_label = gnn_model.forward(sub_feat, edited_norm_adj)

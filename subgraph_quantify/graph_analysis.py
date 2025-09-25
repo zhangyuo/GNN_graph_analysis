@@ -314,7 +314,7 @@ def generate_subgraph(attack_type, explanation_type, target_node_list, gnn_model
     elif attack_type == 'Evasion' and explanation_type == 'counterfactual':
         # Evasion attack & counterfactual explainer
         with open(
-                "/Users/zhangyu/Documents/PycharmProject/GNN_graph_analysis/results/2025-08-07_E-/subgraph_quantify/Evasion_GOttack_instance-level_GNNExplainer_cora_budget[5]/subgraph_data.pickle",
+                "/Users/*******/Documents/PycharmProject/GNN_graph_analysis/results/2025-08-07_E-/subgraph_quantify/Evasion_GOttack_instance-level_GNNExplainer_cora_budget[5]/subgraph_data.pickle",
                 "rb") as fr:
             subgraph_data = pickle.load(fr)
         attack_subgraph = subgraph_data['attack_subgraph']

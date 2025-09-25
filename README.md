@@ -30,7 +30,11 @@ Experiments on synthetic and real-world node classification benchmarks demonstra
 
 ## Dataset  
 
-XX
+We evaluate ATEX-CF on both synthetic and real-world benchmarks.
+
+Synthetic datasets include BA-SHAPES and TREE-CYCLES, widely used in GNN explainability, and the Loan-Decision social graph. 
+
+For real-world evaluation, we use the Cora citation network and the large-scale ogbn-arxiv dataset from OGB.
 
 ---
 
@@ -45,24 +49,26 @@ XX
 
 1. Install PyTorch  
 ```bash
-XX
+pip install torch==2.2.2
+pip install torch-scatter torch-sparse torch-geometric -f https://pytorch-geometric.com/whl/torch-2.2.2+cpu.html
+pip install torchvision==0.17.2
 ```
 
-2. install PyG
-
+2. Install PyTorch Geometric
+```bash
+pip install torch-geometric==2.6.1
 ```
-XX
+
+2. install deeprobust
+```bash
+pip install deeprobust==0.2.11
 ```
 
-3. install PyTorch Geonetric Temporal (optional)
+### Usage
 
-```
-XX
-```
-### Prerequisites
-
-- Python 3.10+
-- Libraries listed in `installed_packages.txt`
-
-
-
+1. Generate counterfactual and factual explanations (ATEX-CF, CF-GNNExplainer, GNNExplainer, PGExplainer) [counterfactual_explanation_subgraph](counterfactual_explanation_subgraph)
+2. Generate adversarial attack subgraph (Nettack, GOttack) [evasion_attack_subgraph](evasion_attack_subgraph)
+3. Model train: [gnn_model_train.py](gnn_model_train.py), [gcn_arxiv_batch.py](gcn_arxiv_batch.py)
+4. GNN analysis: [gnn_graph_generate.py](gnn_graph_generate.py), [gnn_graph_analysis.py](gnn_graph_analysis.py)
+5. Explanations evaluation: [evaluator_ac_gnnexplainer.py](evaluator_ac_gnnexplainer.py), [evaluator_cf_gnnexplainer.py](evaluator_cf_gnnexplainer.py), [evaluator_cf_gnnexplainer_budget.py](evaluator_cf_gnnexplainer_budget.py), [evaluator_gnnexplainer.py](evaluator_gnnexplainer.py), [evaluator_pgexplainer.py](evaluator_pgexplainer.py), [evaluator_Nettack.py](evaluator_Nettack.py), [evaluator_GOttack.py](evaluator_GOttack.py)
+6. Parameters setting: [config](config)

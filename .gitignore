@@ -118,7 +118,7 @@ log/*
 #log/*
 
 # data path
-dataset/
+#dataset/
 
 # model file
 #*.pkl

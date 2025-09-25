@@ -522,7 +522,7 @@ if __name__ == '__main__':
 
     time_name = datetime.now().strftime("%Y-%m-%d")
     # counterfactual explanation subgraph path
-    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{[MAX_EDITS]}-103'
+    counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{[MAX_EDITS]}-{SEED_NUM}'
     if not os.path.exists(counterfactual_explanation_subgraph_path):
         os.makedirs(counterfactual_explanation_subgraph_path)
 

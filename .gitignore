@@ -119,7 +119,7 @@ log/*
 
 # data path
 #dataset/
-ogbn_arxiv
+#ogbn_arxiv
 
 # model file
 #*.pkl

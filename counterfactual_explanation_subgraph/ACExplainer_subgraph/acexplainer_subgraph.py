@@ -13,10 +13,6 @@ import pickle
 import sys
 import warnings
 
-import pandas as pd
-import scipy as sp
-from torch_geometric.loader import NeighborSampler
-
 warnings.filterwarnings("ignore")
 res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(
@@ -33,7 +29,7 @@ from deeprobust.graph.data import Dataset
 import networkx as nx
 from torch_geometric.utils import k_hop_subgraph, to_dense_adj, dense_to_sparse, to_undirected
 from tqdm import tqdm
-
+from torch_geometric.loader import NeighborSampler
 from attack.GOttack.OrbitAttack import OrbitAttack
 from attack.GOttack.orbit_table_generator import OrbitTableGenerator
 from config.config import *
@@ -41,11 +37,13 @@ from explainer.ac_explanation.ac_explainer import ACExplainer
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
-    TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset, edge_index_to_adj, tensor_to_sparse, tensor_to_numpy
+    TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset, edge_index_to_adj, tensor_to_sparse, tensor_to_numpy, \
+    ChameleonDataset
 import torch.nn.functional as F
 from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
 from model.GraphTransformer import load_GraphTransforer_model
 from deeprobust.graph.defense import GCN
+from deeprobust.graph.targeted_attack import Nettack
 
 
 def generate_acexplainer_subgraph(df_orbit,
@@ -153,9 +151,25 @@ def generate_acexplainer_subgraph(df_orbit,
         node_index = mapping_array[node_index_tensor].cpu()
 
     # 2. 获取攻击节点并映射到原始图索引
-    attack_model = OrbitAttack(surrogate, df_orbit, nnodes=data.adj.shape[0],
-                               device=device, top_t=top_t, gcn_layer=gcn_layer)  # initialize the attack model
-    attack_nodes = get_attack_nodes(attack_model, df_orbit, target_node, data, attack_method, top_t)
+    if attack_method == "Nettack":
+        attack_model = Nettack(surrogate, nnodes=data.adj.shape[0], attack_structure=True,
+                               attack_features=False)  # initialize the attack model
+        attack_model = attack_model.to(device)
+        attack_model.attack(data.features, data.adj, data.labels, target_node, ll_cutoff=0.1, n_perturbations=top_t)
+        best_edges = attack_model.structure_perturbations
+        print("best edges: ", len(best_edges))
+        attack_nodes = [node[1] for node in best_edges]
+        attack_nodes = list(set(attack_nodes))
+    elif attack_method == "Random_Sampling":
+        # attack_nodes = np.random.choice(range(pyg_data.num_nodes), size=top_t, replace=False)
+        # attack_nodes = list(set(attack_nodes))
+        attack_model = OrbitAttack(surrogate, df_orbit, nnodes=data.adj.shape[0],
+                                   device=device, top_t=top_t, gcn_layer=gcn_layer)  # initialize the attack model
+        attack_nodes = get_attack_nodes(dataset_name, attack_model, df_orbit, target_node, data, attack_method, top_t)
+    else:  # GOttack
+        attack_model = OrbitAttack(surrogate, df_orbit, nnodes=data.adj.shape[0],
+                                   device=device, top_t=top_t, gcn_layer=gcn_layer)  # initialize the attack model
+        attack_nodes = get_attack_nodes(dataset_name, attack_model, df_orbit, target_node, data, attack_method, top_t)
 
     node_index = node_index.tolist()
 
@@ -235,6 +249,7 @@ def generate_acexplainer_subgraph(df_orbit,
         n_momentum=N_Momentum_AC,
         lr=LEARNING_RATE_AC,
         top_k=MAX_EDITS,
+        C=C,
         tau_plus=TAU_PLUS,
         tau_minus=TAU_MINUS,
         α1=α1,
@@ -319,7 +334,7 @@ def generate_acexplainer_subgraph(df_orbit,
     }, time_cost, subgraph
 
 
-def get_attack_nodes(attack_model, df_orbit, target_node, data, method="GOttack", top_t=10):
+def get_attack_nodes(dataset_name, attack_model, df_orbit, target_node, data, method="GOttack", top_t=10):
     """获取攻击节点列表"""
     if method == "GOttack":
         # 实现GOttack攻击方法，返回高影响力节点
@@ -344,6 +359,8 @@ def get_attack_nodes(attack_model, df_orbit, target_node, data, method="GOttack"
 
         similarities.sort(key=lambda x: x[1], reverse=True)
         high_sim_node = [node for node, sim in similarities]
+        if dataset_name == "chameleon":
+            high_sim_node = matching_index
 
         # Domain Rules
         pass
@@ -353,11 +370,18 @@ def get_attack_nodes(attack_model, df_orbit, target_node, data, method="GOttack"
         best_edges = attack_model.best_edge_list
         print("best edges: ", len(best_edges))
 
-        attck_nodes = [node[1] for node in best_edges]
-        attck_nodes = list(set(attck_nodes))
+        attack_nodes = [node[1] for node in best_edges]
+        attack_nodes = list(set(attack_nodes))
 
-        return attck_nodes
+        return attack_nodes
+    elif method == "Random_Sampling":
+        attack_model.random_sampling(data.features, data.adj, data.labels, target_node, top_t)
+        best_edges = attack_model.best_edge_list
+        print("best edges: ", len(best_edges))
+        attack_nodes = [node[1] for node in best_edges]
+        attack_nodes = list(set(attack_nodes))
 
+        return attack_nodes
     else:
         # 其他攻击方法
         return list(range(top_t))  # 简化返回
@@ -569,6 +593,17 @@ if __name__ == '__main__':
         data = LoanDecisionDataset(pyg_data)
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'chameleon':
+        # Create PyG Data object
+        from torch_geometric.datasets import WikipediaNetwork
+        chameleon_data = WikipediaNetwork(name="chameleon", root=dataset_path)
+        pyg_data = chameleon_data[0]
+        pyg_data.y = pyg_data.y.view(-1).long()
+        # Create deeprobust Data object
+        data = ChameleonDataset(chameleon_data)
+        pyg_data.edge_index = data.pyg_data.edge_index
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     elif dataset_name == 'ogbn-arxiv':
         # Create PyG Data object
         ogbn_arxiv_data = PygNodePropPredDataset(name="ogbn-arxiv", root=dataset_path)
@@ -664,6 +699,7 @@ if __name__ == '__main__':
     time_list = []
     mis_cases = 0
     for target_node in tqdm(target_node_list):
+        # target_node = 1978
         cf_example, time_cost, subgraph = generate_acexplainer_subgraph(df_orbit, target_node, data, pyg_data,
                                                                         gnn_model,
                                                                         surrogate, pre_output, gcn_layer, attack_method,
@@ -678,6 +714,7 @@ if __name__ == '__main__':
         test_cf_examples.append({"data": cf_example, "time_cost": time_cost})
         if cf_example['success']:
             mis_cases += 1
+        # break
     print("Total time elapsed: {:.4f}min".format((time.time() - start_0) / 60))
     print("Number of CF examples found: {}/{}".format(mis_cases, len(target_node_list)))
 

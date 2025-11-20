@@ -188,30 +188,30 @@ class PyGCompatibleGCN(nn.Module):
         super().__init__()
         self.gcn_layer = gcn_layer
         if self.gcn_layer == 3:
-            self.conv1 = GCNConv(in_channels, hidden_channels, bias=with_bias)
-            self.conv2 = GCNConv(hidden_channels, hidden_channels, bias=with_bias)
-            self.conv3 = GCNConv(hidden_channels, out_channels, bias=with_bias)
+            self.conv1 = GCNConv(in_channels, hidden_channels, normalize=False, bias=with_bias)
+            self.conv2 = GCNConv(hidden_channels, hidden_channels, normalize=False, bias=with_bias)
+            self.conv3 = GCNConv(hidden_channels, out_channels, normalize=False, bias=with_bias)
             self.lin = nn.Linear(hidden_channels + hidden_channels + out_channels, out_channels, bias=with_bias)
         else:
-            self.conv1 = GCNConv(in_channels, hidden_channels, bias=with_bias)
-            self.conv2 = GCNConv(hidden_channels, out_channels, bias=with_bias)
+            self.conv1 = GCNConv(in_channels, hidden_channels, normalize=False, bias=with_bias)
+            self.conv2 = GCNConv(hidden_channels, out_channels, normalize=False, bias=with_bias)
         self.dropout = dropout
         self.device = device
 
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, edge_weight=None):
         # edge_index, _ = add_self_loops(edge_index, num_nodes=x.size(0))
         if self.gcn_layer==3:
-            x1 = self.conv1(x, edge_index).relu()
+            x1 = self.conv1(x, edge_index, edge_weight=edge_weight).relu()
             x1 = F.dropout(x1, p=self.dropout, training=self.training)
-            x2 = self.conv2(x1, edge_index).relu()
+            x2 = self.conv2(x1, edge_index, edge_weight=edge_weight).relu()
             x2 = F.dropout(x2, p=self.dropout, training=self.training)
-            x3 = self.conv3(x2, edge_index)
+            x3 = self.conv3(x2, edge_index, edge_weight=edge_weight)
             x = self.lin(torch.cat((x1, x2, x3), dim=1))
             return F.log_softmax(x, dim=1)
         else:
-            x1 = self.conv1(x, edge_index).relu()
+            x1 = self.conv1(x, edge_index, edge_weight=edge_weight).relu()
             x1 = F.dropout(x1, p=self.dropout, training=self.training)
-            x2 = self.conv2(x1, edge_index)
+            x2 = self.conv2(x1, edge_index, edge_weight=edge_weight)
             return F.log_softmax(x2, dim=1)
 
     def loss(self, pred, label):

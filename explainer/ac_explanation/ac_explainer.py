@@ -42,6 +42,7 @@ class ACExplainer:
                  n_momentum: float = 0.9,
                  lr: float = 0.01,
                  top_k: int = 5,
+                 C: float = 1.0,
                  tau_plus: float = 0.5,
                  tau_minus: float = -0.5,
                  α1: float = 0.1,
@@ -80,6 +81,7 @@ class ACExplainer:
         self.n_momentum = n_momentum
         self.lr = lr
         self.top_k = top_k
+        self.C = C
         self.tau_plus = tau_plus
         self.tau_minus = tau_minus
         self.α1 = α1
@@ -106,6 +108,7 @@ class ACExplainer:
             lambda_dist=self.lambda_dist,
             lambda_plau=self.lambda_plau,
             top_k=self.top_k,
+            C=self.C,
             tau_plus=self.tau_plus,
             tau_minus=self.tau_minus,
             α1=self.α1,

@@ -4,7 +4,7 @@
 # @Time     : 2025/7/17 12:43
 # @Author   : **
 # @Email    : **@**
-# @File     : cfexplainer_subgraph.py
+# @File     : c2explainer_subgraph.py
 # @Software : PyCharm
 # @Desc     :
 """
@@ -16,6 +16,7 @@ res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(
     os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
 sys.path.insert(0, base_path)
+from explainer.c2_explainer.c2_explainer import C2Explainer
 from ogb.nodeproppred import PygNodePropPredDataset
 import time
 from datetime import datetime
@@ -37,81 +38,77 @@ from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
     TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset, ChameleonDataset
 import torch.nn.functional as F
+from torch_geometric.explain import Explainer
 
 
-def attack_cfexplanation_subgraph_generate(target_node_list, attack_subgraph, features, labels, gnn_model,
-                                           device, idx_test, gcn_layer, with_bias,
-                                           counterfactual_explanation_subgraph_path):
-    cfexp_subgraph = {}
-    for target_node in tqdm(target_node_list):
-        at_sbg_dt = attack_subgraph[target_node]
-        modified_labels = at_sbg_dt['modified_labels']
-        modified_adj = at_sbg_dt['modified_adj']
-        modified_features = at_sbg_dt['modified_features'] if at_sbg_dt['modified_features'] else features
-        attacked_pyg_data = dr_data_to_pyg_data(modified_adj, modified_features, modified_labels)
-        edge_index = attacked_pyg_data.edge_index
-        norm_modified_adj = normalize_adj(modified_adj)
-        pre_output = gnn_model.forward(modified_features, norm_modified_adj)[target_node]
-        subgraph, _ = generate_cfexplainer_subgraph(target_node, edge_index, modified_adj, modified_features, labels,
-                                                    pre_output, gnn_model,
-                                                    device, idx_test, gcn_layer, with_bias,
-                                                    counterfactual_explanation_subgraph_path)
-        cfexp_subgraph[target_node] = subgraph
+def analyze_edge_changes(original_edges, cf_edges, target_node):
+    """
+    分析边的具体变化：添加了哪些边，删除了哪些边
+    """
+    # 将边转换为集合以便比较（考虑无向图）
+    original_set = set()
+    for i in range(original_edges.shape[1]):
+        u, v = original_edges[0, i].item(), original_edges[1, i].item()
+        original_set.add((min(u, v), max(u, v)))
 
-    return cfexp_subgraph
+    cf_set = set()
+    for i in range(cf_edges.shape[1]):
+        u, v = cf_edges[0, i].item(), cf_edges[1, i].item()
+        cf_set.add((min(u, v), max(u, v)))
+
+    # 找出添加和删除的边
+    added_edges = cf_set - original_set
+    removed_edges = original_set - cf_set
+
+    # 筛选与目标节点相关的边变化
+    target_added = [edge for edge in added_edges if target_node in edge]
+    target_removed = [edge for edge in removed_edges if target_node in edge]
+
+    return {
+        'added_edges': list(added_edges),
+        'removed_edges': list(removed_edges),
+        'total_added': len(added_edges),
+        'total_removed': len(removed_edges),
+        'target_added_edges': target_added,
+        'target_removed_edges': target_removed,
+        'target_related_added': len(target_added),
+        'target_related_removed': len(target_removed)
+    }
 
 
-def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels, output, model, device, idx_test,
+def generate_c2explainer_subgraph(target_node, explainer, pyg_data, adj, features, labels, output, model, pyg_gcn, device,
+                                  idx_test,
                                   gcn_layer, with_bias, counterfactual_explanation_subgraph_path, test_model,
                                   dataset_name, heads_num, output_idx=None):
     start = time.time()
-    sub_adj, sub_edge_index, sub_feat, sub_labels, node_dict = get_neighbourhood(target_node, edge_index,
+    sub_adj, sub_edge_index, sub_feat, sub_labels, node_dict = get_neighbourhood(target_node, pyg_data.edge_index,
                                                                                  features, labels, gcn_layer)
     new_idx = node_dict[target_node]
     # sub_pyg_data = dr_data_to_pyg_data(sub_adj, sub_feat, sub_labels)
+    output_prob = None
     if dataset_name == 'ogbn-arxiv':
         print("Output original model, full adj: {}".format(output[output_idx.index(target_node)]))
+        output_prob = output[output_idx.index(target_node)]
     else:
         print("Output original model, full adj: {}".format(output[target_node]))
+        print("Output original model, full adj: label={}".format(output[target_node].argmax()))
+        output_prob = output[target_node]
     norm_sub_adj = normalize_adj(sub_adj)
     if test_model == "GCN":
         print("Output original model, sub adj: {}".format(model.forward(sub_feat, norm_sub_adj)[new_idx]))
+        print("Output original model, sub adj: label={}".format(model.forward(sub_feat, norm_sub_adj)[new_idx].argmax()))
     elif test_model in ["GraphTransformer", "GAT", "GraphConv"]:
         edge_index, edge_weight = dense_to_sparse(norm_sub_adj)
         print("Output original model, sub adj: {}".format(
             model.forward(sub_feat, edge_index, edge_weight=edge_weight)[new_idx]))
-    # output = gnn_model.predict(features=features, adj=modified_adj)
-    # Need to instantitate new cf model every time because size of P changes based on size of sub_adj
 
     if dataset_name == "ogbn-arxiv":
         y_pred_orig = output.argmax(dim=1)[output_idx.index(target_node)]
     else:
         y_pred_orig = output.argmax(dim=1)[target_node]
-    explainer = CFExplainer(model=model,
-                            sub_adj=sub_adj,
-                            sub_feat=sub_feat,
-                            n_hid=HIDDEN_CHANNELS,
-                            dropout=DROPOUT,
-                            sub_labels=sub_labels,
-                            y_pred_orig=y_pred_orig,
-                            num_classes=labels.max().item() + 1,
-                            beta=BETA,
-                            device=device,
-                            gcn_layer=gcn_layer,
-                            with_bias=with_bias,
-                            test_model=test_model,
-                            dataset_name=dataset_name,
-                            heads=heads_num)
-    if device == 'cuda':
-        model.cuda()
-        explainer.cf_model.cuda()
-        adj = adj.cuda()
-        features = features.cuda()
-        labels = labels.cuda()
-        idx_test = idx_test.cuda()
 
-    cf_example = explainer.explain(node_idx=target_node, cf_optimizer=OPTIMIZER, new_idx=new_idx, lr=LEARNING_RATE_CF,
-                                   n_momentum=N_Momentum, num_epochs=NUM_EPOCHS)
+    explanation = explainer(pyg_data.x, pyg_data.edge_index, index=target_node)
+
     time_cost = time.time() - start
 
     # graph visualization
@@ -120,9 +117,29 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
         "true_subgraph": None,
         "E_type": None,
     }
-    if cf_example[-1]:
-        modified_sub_adj = cf_example[2]
-        changed_label = cf_example[5]
+
+    # Check if the explanation was successfully generated
+    flag = False
+    if hasattr(explanation, "perturbs") and int(explanation.perturbs / 2) <= MAX_EDITS:
+        flag = True
+    if flag:
+        edge_changes = analyze_edge_changes(pyg_data.edge_index, explanation.stores[0]['cf'], target_node)
+        modified_sub_adj = sub_adj.clone()
+        for (u, v) in edge_changes["added_edges"]:
+            i, j = node_dict[u], node_dict[v]
+            modified_sub_adj[i, j] = 1
+            modified_sub_adj[j, i] = 1
+        for (u, v) in edge_changes["removed_edges"]:
+            i, j = node_dict[u], node_dict[v]
+            modified_sub_adj[i, j] = 0
+            modified_sub_adj[j, i] = 0
+
+        changed_label = explanation.stores[0]['label']
+        # print("Output original model, full adj: label={}".format(output[target_node].argmax()))
+        # norm_modified_sub_adj = normalize_adj(modified_sub_adj)
+        # print("Output original model, sub adj: label={}".format(model.forward(sub_feat, norm_modified_sub_adj)[new_idx].argmax()))
+        # pyg_gcn.forward(explanation.stores[0]['x'], explanation.stores[0]['edge_index'])
+
         subgraph, true_subgraph, E_type = visualize_cfexp_subgraph(
             modified_sub_adj,
             sub_adj.detach().numpy(),
@@ -142,6 +159,10 @@ def generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels
             "true_subgraph": true_subgraph,
             "E_type": E_type,
         }
+        cf_example = [target_node, new_idx, modified_sub_adj, sub_adj, y_pred_orig, explanation.stores[0]['probability'],
+                      sub_labels, explanation.perturbs / 2, sub_feat, flag]
+    else:
+        cf_example = [target_node, new_idx, sub_adj, sub_adj, y_pred_orig, output_prob, sub_labels, 0, sub_feat, flag]
     return subgraph, cf_example, time_cost
 
 
@@ -161,7 +182,7 @@ if __name__ == '__main__':
     explanation_type = EXPLANATION_TYPE
     attack_method = ATTACK_METHOD
     attack_budget_list = ATTACK_BUDGET_LIST
-    explainer_method = "CFExplainer"
+    explainer_method = "C2Explainer"
     heads_num = HEADS_NUM if TEST_MODEL in ["GraphTransformer", "GAT"] else None
 
     np.random.seed(SEED_NUM)
@@ -293,6 +314,7 @@ if __name__ == '__main__':
     target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
+    # target_node_list = [80]
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
     # target_node_list = target_node_list[101:110]
 
@@ -303,11 +325,29 @@ if __name__ == '__main__':
     cfexp_subgraph = {}
     time_list = []
     mis_cases = 0
+    pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
     for target_node in tqdm(target_node_list):
-        edge_index = pyg_data.edge_index
-        subgraph, cf_example, time_cost = generate_cfexplainer_subgraph(target_node, edge_index, adj, features, labels,
+        # initialize C2Explainer, use subgraph mode
+        explainer = C2Explainer(epochs=20, lr=0.1, silent_mode=True, undirected=True, subgraph_mode=False)
+
+        # config Explainer：edge perturbation, do not change node feature
+        explainer = Explainer(
+            model=pyg_gcn,
+            algorithm=explainer,
+            explanation_type='model',
+            node_mask_type=None,  # do not change node feature
+            edge_mask_type='object',  # only edge perturbation
+            model_config=dict(
+                mode='multiclass_classification',
+                task_level='node',
+                return_type='raw',
+            )
+        )
+
+        subgraph, cf_example, time_cost = generate_c2explainer_subgraph(target_node, explainer, pyg_data, adj, features,
+                                                                        labels,
                                                                         pre_output,
-                                                                        gnn_model, device, idx_test, gcn_layer,
+                                                                        gnn_model, pyg_gcn, device, idx_test, gcn_layer,
                                                                         with_bias,
                                                                         counterfactual_explanation_subgraph_path,
                                                                         test_model, dataset_name, heads_num,

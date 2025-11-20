@@ -66,8 +66,8 @@ if __name__ == "__main__":
         idx_train, idx_val, idx_test = None, None, None
 
     # create data results path
-    time_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # time_name = datetime.now().strftime("%Y-%m-%d") + "_E-_for_cfexp"
+    # time_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    time_name = datetime.now().strftime("%Y-%m-%d") + "_E-"
 
     # clean subgraph path
     clean_subgraph_path = base_path + f'/results/{time_name}/clean_subgraph/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}'
@@ -124,12 +124,13 @@ if __name__ == "__main__":
     pre_output = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
 
     ######################### select test nodes  #########################
-    target_node_list, target_node_list1 = select_test_nodes(attack_type, explanation_type, idx_test, pre_output, labels)
+    target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
     target_node_list += target_node_list1
     # target_node_list = target_node_list[100:105]
+    target_node_list = [1978]
 
     ######################### GNN explainer generate  #########################
-    explainer = gnn_explainer_generate(gnn_model, device, features, labels, gcn_layer)
+    explainer = gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_layer)
 
     ######################### generate subgraph  #########################
     subgraph_data = generate_subgraph(attack_type, explanation_type, target_node_list, gnn_model, explainer, pyg_data,

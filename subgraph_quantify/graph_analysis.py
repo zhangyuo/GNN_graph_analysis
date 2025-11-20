@@ -43,7 +43,7 @@ from torch_geometric.transforms import RandomNodeSplit
 
 from utilty.clean_subgraph_visualization import visualize_restricted_clean_subgraph
 from utilty.maximum_common_graph_visualization import mx_com_graph_view
-from config.config import HIDDEN_CHANNELS, DROPOUT, WITH_BIAS, DEVICE, GCN_LAYER
+from config.config import HIDDEN_CHANNELS, DROPOUT, WITH_BIAS, DEVICE, GCN_LAYER, DATA_NAME, LEARNING_RATE, NUM_EPOCHS_AC, SEED_NUM
 from utilty.utils import select_test_nodes, normalize_adj
 
 
@@ -202,6 +202,7 @@ def clean_explanation_subgraph_generate(explainer, pyg_data, explainer_method, t
     if explainer_method == "GNNExplainer":
         for target_node in tqdm(target_node_list):
             attack_subgraph_edge_num = len(attack_subgraph[target_node]['at_subgraph'].edges)
+            attack_subgraph_edge_num = 25
             subgraph = gnnexplainer_subgraph(explainer, pyg_data, target_node, labels, features,
                                              instance_level_explanation_subgraph_path, attack_subgraph_edge_num,
                                              ex_type='clean')
@@ -240,6 +241,62 @@ def attack_explanation_subgraph_generate(attack_type, explainer, attack_subgraph
                                                  modified_features, instance_level_explanation_subgraph_path,
                                                  attack_subgraph_edge_num,
                                                  ex_type='attack')
+
+            attacked_explanation_subgraph[target_node] = subgraph
+
+    return attacked_explanation_subgraph
+
+
+def cf_explanation_subgraph_generate(attack_type, explainer, attack_subgraph, explainer_method, target_node_list,
+                                         adj, labels, features, instance_level_explanation_subgraph_path,
+                                         device, gnn_model, pyg_data=None):
+    attacked_explanation_subgraph = {}
+    if explainer_method == "GNNExplainer":
+        for target_node in tqdm(target_node_list):
+            # with open(
+            #         '/Users/****/Documents/PycharmProject/GNN_graph_analysis/results/2025-11-17/counterfactual_subgraph_GCN/Evasion_GOttack_counterfactual_ACExplainer_cora_budget[5]-102' + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_epochs{NUM_EPOCHS_AC}_seed{SEED_NUM}",
+            #         "rb") as f:
+            #     cf_examples = pickle.load(f)
+            #     df_prep = []
+            #     time_list = []
+            #     for example in cf_examples:
+            #         time_list.append(example["time_cost"])
+            #         if example["data"]:
+            #             df_prep.append(example["data"])
+            #     df = pd.DataFrame(df_prep, columns=df_prep[0].keys())
+            #
+            # data = cf_examples[0]['data']
+            # modified_adj = data['cf_adj']
+
+            modified_adj = adj.tolil()
+            add_edges = [(190, 1978)]
+            remove_edges = [(1978, 1306)]
+            for edge in add_edges:
+                i, j = edge
+                modified_adj[i, j] = 1
+                modified_adj[j, i] = 1
+            for edge in remove_edges:
+                i, j = edge
+                modified_adj[i, j] = 0
+                modified_adj[j, i] = 0
+            modified_adj = modified_adj.tocsr()
+            dense_adj = torch.tensor(modified_adj.toarray())
+            norm_adj = normalize_adj(dense_adj)
+            modified_labels = gnn_model.forward(torch.tensor(features.toarray()), norm_adj)
+            modified_labels = modified_labels.argmax(dim=1).detach().numpy()
+            modified_features = features
+            attack_subgraph_edge_num = 25
+
+            subgraph = None
+            if attack_type == "Evasion":
+                # change pyg_data, features, labels
+                attacked_pyg_data = dr_data_to_pyg_data(modified_adj, modified_features, modified_labels)
+                subgraph = gnnexplainer_subgraph(explainer, attacked_pyg_data, target_node, modified_labels,
+                                                 modified_features, instance_level_explanation_subgraph_path,
+                                                 attack_subgraph_edge_num,
+                                                 ex_type='attack')
+            elif attack_type == "Poison":
+                pass
 
             attacked_explanation_subgraph[target_node] = subgraph
 
@@ -286,11 +343,16 @@ def generate_subgraph(attack_type, explanation_type, target_node_list, gnn_model
                                                                          target_node_list, labels, features,
                                                                          attack_subgraph,
                                                                          instance_level_explanation_subgraph_path)
-        attacked_explanation_subgraph = attack_explanation_subgraph_generate(attack_type, explainer, attack_subgraph,
-                                                                             explainer_method, target_node_list,
+        # attacked_explanation_subgraph = attack_explanation_subgraph_generate(attack_type, explainer, attack_subgraph,
+        #                                                                      explainer_method, target_node_list,
+        #                                                                      labels, features,
+        #                                                                      instance_level_explanation_subgraph_path,
+        #                                                                      device)
+        attacked_explanation_subgraph = cf_explanation_subgraph_generate(attack_type, explainer, attack_subgraph,
+                                                                             explainer_method, target_node_list, adj,
                                                                              labels, features,
                                                                              instance_level_explanation_subgraph_path,
-                                                                             device)
+                                                                             device, gnn_model)
     elif attack_type == 'Poison' and explanation_type == 'instance-level':
         # Poison attack & instance-level explainer
         attack_subgraph = attack_subgraph_generate(gnn_model, attack_method, attack_budget_list, target_node_list, data,
@@ -314,7 +376,7 @@ def generate_subgraph(attack_type, explanation_type, target_node_list, gnn_model
     elif attack_type == 'Evasion' and explanation_type == 'counterfactual':
         # Evasion attack & counterfactual explainer
         with open(
-                "/Users/*******/Documents/PycharmProject/GNN_graph_analysis/results/2025-08-07_E-/subgraph_quantify/Evasion_GOttack_instance-level_GNNExplainer_cora_budget[5]/subgraph_data.pickle",
+                "/Users/zhangyu/Documents/PycharmProject/GNN_graph_analysis/results/2025-11-17_E-/subgraph_quantify/Evasion_GOttack_instance-level_GNNExplainer_cora_budget[5]/subgraph_data.pickle",
                 "rb") as fr:
             subgraph_data = pickle.load(fr)
         attack_subgraph = subgraph_data['attack_subgraph']

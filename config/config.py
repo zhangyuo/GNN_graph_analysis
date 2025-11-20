@@ -12,17 +12,17 @@
 TEST_MODEL = "GCN"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
 
 # dataset
-DATA_NAME = "BA-SHAPES"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "ogbn-arxiv"]
+DATA_NAME = "chameleon"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "chameleon", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
 
 # random seed
-SEED_NUM = 104  # first experiment is 102, 103, 104
+SEED_NUM = 102  # first experiment is 102, 103, 104
 
 ################ Explainer parameters ################
 EXPLANATION_TYPE = 'counterfactual'  # ['instance-level', 'class-level', 'counterfactual']
-EXPLAINER_METHOD = 'CFExplainer'  # ['GNNExplainer', 'PGExplainer', 'CFExplainer', 'ACExplainer']
+EXPLAINER_METHOD = 'C2Explainer'  # ['GNNExplainer', 'PGExplainer', 'CFExplainer', 'ACExplainer', 'C2Explainer', 'INDUCE']
 ####################################################################
 
 ################ GNN model parameters for datasets ################
@@ -59,6 +59,14 @@ if TEST_MODEL == "GCN":
         LEARNING_RATE = 0.001
         GCN_LAYER = 3
         GCN_EPOCHS = 5000
+    elif DATA_NAME == "chameleon":
+        HIDDEN_CHANNELS = 80
+        DROPOUT = 0.55
+        WITH_BIAS = True
+        WEIGHT_DECAY = 5e-3
+        LEARNING_RATE = 0.01
+        GCN_LAYER = 3
+        GCN_EPOCHS = 500
     elif DATA_NAME == "ogbn-arxiv":
         HIDDEN_CHANNELS = 64
         DROPOUT = 0.5
@@ -104,6 +112,15 @@ elif TEST_MODEL == "GraphTransformer":
         GCN_LAYER = 2
         GCN_EPOCHS = 2000
         WITH_BIAS = True
+    elif DATA_NAME == "chameleon":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 2
+        GCN_EPOCHS = 2000
+        WITH_BIAS = True
     elif DATA_NAME == "ogbn-arxiv":
         HIDDEN_CHANNELS = 100
         DROPOUT = 0.5
@@ -139,6 +156,14 @@ elif TEST_MODEL == "GraphConv":
         GCN_EPOCHS = 5000
         WITH_BIAS = True
     elif DATA_NAME == "Loan-Decision":
+        HIDDEN_CHANNELS = 100
+        DROPOUT = 0
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.001
+        GCN_LAYER = 2
+        GCN_EPOCHS = 5000
+        WITH_BIAS = True
+    elif DATA_NAME == "chameleon":
         HIDDEN_CHANNELS = 100
         DROPOUT = 0
         WEIGHT_DECAY = 0.001
@@ -191,6 +216,15 @@ elif TEST_MODEL == "GAT":
         GCN_LAYER = 2
         GCN_EPOCHS = 1000
         WITH_BIAS = True
+    elif DATA_NAME == "chameleon":
+        HIDDEN_CHANNELS = 32
+        DROPOUT = 0.4
+        HEADS_NUM = 2
+        WEIGHT_DECAY = 0.001
+        LEARNING_RATE = 0.005
+        GCN_LAYER = 2
+        GCN_EPOCHS = 1000
+        WITH_BIAS = True
     elif DATA_NAME == "ogbn-arxiv":
         HIDDEN_CHANNELS = 100
         DROPOUT = 0.5
@@ -204,7 +238,7 @@ elif TEST_MODEL == "GAT":
 
 ################ Attack model parameters for datasets in graph analysis ##############
 ATTACK_TYPE = 'Evasion'  # ['Evasion', 'Poison'] our project only considers the evasion attack
-ATTACK_METHOD = 'GOttack'  # GOttack
+ATTACK_METHOD = 'GOttack'  # GOttack, Nettack, Random_Sampling
 ATTACK_BUDGET_LIST = [5]  # [5,4,3,2,1] only can be used in attack graph analysis for similarity analysis
 ####################################################################
 
@@ -219,10 +253,10 @@ LEARNING_RATE_CF = 0.01  # 0.01
 ################ ACExplainer parameters for datasets ##############
 LEARNING_RATE_AC = 10 ** -3  # learning rate for acexplainer training
 MAX_ATTACK_NODES_NUM = 20  # max number of selected attacked nodes
-NUM_EPOCHS_AC = 200  # Num epochs for explainer
+NUM_EPOCHS_AC = 100  # Num epochs for explainer
 OPTIMIZER_AC = "SGD"  # GCN-'SGD' or 'Adadelta' or 'Adam'
 N_Momentum_AC = 0.9  # Nesterov momentum
-LAMBDA_PRED = 1.5  # 预测损失权重  GCN: 1.0, GT/GAT on cora:10.0
+LAMBDA_PRED = 1.0  # 预测损失权重  GCN: 1.0, GT/GAT on cora:10.0
 LAMBDA_DIST = 0.5  # 稀疏项惩罚权重  0.5
 LAMBDA_PLAU = 0.5  # 现实惩罚项权重  0.5
 MAX_EDITS = 5  # 最大扰动预算
@@ -234,6 +268,7 @@ TAU_MINUS = -0.5  # 减边阈值  GCN -0.5
 α4 = 0  # 领域知识破坏惩罚项权重0
 TAU_C = 0  # 聚类系数变化容忍度阈值0
 PRUNING = True  # Posthoc Pruning
+C = 1.0  # asymmetric cost for edge addition
 
 ################ Evaluation Metrics ################################
 k = 1  # 1

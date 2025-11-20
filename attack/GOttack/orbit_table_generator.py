@@ -23,6 +23,8 @@ class OrbitTableGenerator:
             return self.generate_orbit_tables_from_sratch_other()
         elif self.dataset == 'Loan-Decision':
             return self.generate_orbit_tables_from_sratch_other()
+        elif self.dataset == 'chameleon':
+            return self.generate_orbit_tables_from_sratch_other()
         elif self.dataset == 'ogbn-arxiv':
             return self.generate_orbit_tables_from_sratch_other()
         else:
@@ -85,6 +87,8 @@ class OrbitTableGenerator:
             filename = self.filepath + "TreeCycle_orbit_df.csv"
         elif self.dataset == 'Loan-Decision':
             filename = self.filepath + "LoanDecision_orbit_df.csv"
+        elif self.dataset == 'chameleon':
+            filename = self.filepath + "chameleon_orbit_df.csv"
         elif self.dataset == 'ogbn-arxiv':
             filename = self.filepath + "arxiv_orbit_df.csv"
         else:

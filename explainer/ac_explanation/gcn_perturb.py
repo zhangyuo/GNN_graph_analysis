@@ -28,6 +28,7 @@ class SignedMaskPerturbation(nn.Module):
                  node_idx: int,
                  node_num_l_hop: list,
                  top_k: int = 5,
+                 C: float = 1.0,
                  tau_plus: float = 0.5,
                  tau_minus: float = -0.5,
                  test_model: str = "GCN",
@@ -47,6 +48,7 @@ class SignedMaskPerturbation(nn.Module):
         self.tau_plus = tau_plus  # 添加边的阈值
         self.tau_minus = tau_minus  # 删除边的阈值
         self.node_num_l_hop = node_num_l_hop
+        self.C = C
         self.top_k = top_k  # 保留的最大边修改数量
         self.n_nodes = extended_sub_adj.size(0)  # 扩展子图中的节点数
         self.plan_added_node_idx = []
@@ -70,12 +72,15 @@ class SignedMaskPerturbation(nn.Module):
         # 遍历extended_sub_adj中所有现有边
         # sub_adj = self.extended_sub_adj[lhop_node_index, :][:, lhop_node_index]
         # init_value = -0.8  # GCN:-0.5 GraphConv:-1.0 GraphTransformer: -0.8
-        init_value = {
-            "GCN": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5, "ogbn-arxiv": -0.5},
-            "GraphTransformer": {"cora": -0.8, "BA-SHAPES": -0.6, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8, "ogbn-arxiv": -0.8},
-            "GraphConv": {"cora": -1.0, "BA-SHAPES": -1.0, "TREE-CYCLES": -1.0, "Loan-Decision": -1.0, "ogbn-arxiv": -1.0},
-            "GAT": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8, "ogbn-arxiv": -0.8}
-        }[self.test_model][self.dataset_name]
+        try:
+            init_value = {
+                "GCN": {"cora": -0.5, "BA-SHAPES": -0.5, "TREE-CYCLES": -0.5, "Loan-Decision": -0.5, "ogbn-arxiv": -0.5},
+                "GraphTransformer": {"cora": -0.8, "BA-SHAPES": -0.6, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8, "ogbn-arxiv": -0.8},
+                "GraphConv": {"cora": -1.0, "BA-SHAPES": -1.0, "TREE-CYCLES": -1.0, "Loan-Decision": -1.0, "ogbn-arxiv": -1.0},
+                "GAT": {"cora": -0.8, "BA-SHAPES": -0.8, "TREE-CYCLES": -0.8, "Loan-Decision": -0.8, "ogbn-arxiv": -0.8}
+            }[self.test_model][self.dataset_name]
+        except:
+            init_value = self.tau_minus
         init_value += 0.01*torch.randn(1).item()
         ones_indices = torch.nonzero(self.extended_sub_adj == 1)
         non_diagonal_ones = ones_indices[ones_indices[:, 0] != ones_indices[:, 1]].tolist()
@@ -84,21 +89,27 @@ class SignedMaskPerturbation(nn.Module):
                     non_diagonal_ones[i][0] < non_diagonal_ones[i][1]:
                 # 现有边初始化为小负数 (倾向删除)
                 mask_init_values.append(init_value)
-                self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i]])
+                self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i], True])  # True denotes that orignal adj have edge
                 mask_index += 1
         # 遍历所有attack_nodes，针对无现有边场景倾向添加，但需要抑制加边
         # init_value = 0.8  # GCN：0.4 GraphConv:0.55 GraphTransformer: 0.8
-        init_value = {
-            "GCN": {"cora": 0.4, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.4, "Loan-Decision": 0.4, "ogbn-arxiv": 0.4},
-            "GraphTransformer": {"cora": 0.8, "BA-SHAPES": 0.6, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8, "ogbn-arxiv": 0.8},
-            "GraphConv": {"cora": 0.55, "BA-SHAPES": 0.55, "TREE-CYCLES": 0.55, "Loan-Decision": 0.55, "ogbn-arxiv": 0.55},
-            "GAT": {"cora": 0.8, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8, "ogbn-arxiv": 0.8}
-        }[self.test_model][self.dataset_name]
+        try:
+            init_value = {
+                "GCN": {"cora": 0.4, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.4, "Loan-Decision": 0.4, "ogbn-arxiv": 0.4},
+                "GraphTransformer": {"cora": 0.8, "BA-SHAPES": 0.6, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8, "ogbn-arxiv": 0.8},
+                "GraphConv": {"cora": 0.55, "BA-SHAPES": 0.55, "TREE-CYCLES": 0.55, "Loan-Decision": 0.55, "ogbn-arxiv": 0.55},
+                "GAT": {"cora": 0.8, "BA-SHAPES": 0.8, "TREE-CYCLES": 0.8, "Loan-Decision": 0.8, "ogbn-arxiv": 0.8}
+            }[self.test_model][self.dataset_name]
+        except:
+            init_value = self.tau_plus
         init_value -= 0.01 * torch.randn(1).item()
         for i in attack_nodes_idx:
             if i != self.node_idx:
                 mask_init_values.append(init_value)
-                self.plan_added_node_idx.append([mask_index, [self.node_idx, i]])
+                if [self.node_idx, i] in non_diagonal_ones or [i, self.node_idx] in non_diagonal_ones:
+                    self.plan_added_node_idx.append([mask_index, [self.node_idx, i], True])
+                else:
+                    self.plan_added_node_idx.append([mask_index, [self.node_idx, i], False])
                 mask_index += 1
 
         return nn.Parameter(torch.tensor(mask_init_values, dtype=torch.float32))
@@ -108,17 +119,48 @@ class SignedMaskPerturbation(nn.Module):
         应用TopK稀疏化 (仅保留梯度最大的k个扰动)
         应用三值离散化：-1(删除), 0(不变), +1(添加)
         """
-        with torch.no_grad():  # 离散化操作不需要梯度
-            # 应用TopK稀疏化 (仅保留梯度最大的k个扰动)
-            abs_values = torch.abs(M_e)  # 计算连续掩码的绝对值（衡量扰动强度
-            top_k_M_e = M_e
-            if len(M_e) > self.top_k:
-                # 找出绝对值最大的top_k个索引
-                # keep_k = min(self.top_k, int(0.5 * len(M_e)))
-                topk_indices = torch.topk(abs_values, self.top_k).indices
-                sparse_mask = torch.zeros_like(M_e)  # 创建全0掩码
-                sparse_mask[topk_indices] = 1  # 仅将top_k个位置设为1
-                top_k_M_e = M_e * sparse_mask  # 应用稀疏掩码
+        # with torch.no_grad():  # 离散化操作不需要梯度
+        #     # 应用TopK稀疏化 (仅保留梯度最大的k个扰动)
+        #     abs_values = torch.abs(M_e)  # 计算连续掩码的绝对值（衡量扰动强度
+        #     top_k_M_e = M_e
+        #     if len(M_e) > self.top_k:
+        #         # 找出绝对值最大的top_k个索引
+        #         # keep_k = min(self.top_k, int(0.5 * len(M_e)))
+        #         topk_indices = torch.topk(abs_values, self.top_k).indices
+        #         sparse_mask = torch.zeros_like(M_e)  # 创建全0掩码
+        #         sparse_mask[topk_indices] = 1  # 仅将top_k个位置设为1
+        #         top_k_M_e = M_e * sparse_mask  # 应用稀疏掩码
+
+        with torch.no_grad():
+            costs = torch.zeros_like(M_e)
+            for data in self.plan_added_node_idx + self.plan_deleted_node_idx:
+                me_idx = data[0]
+                is_original_edge = data[2]  # True=have edge / False=no edge
+                if is_original_edge:
+                    costs[me_idx] = 1
+                else:
+                    costs[me_idx] = self.C
+            scores = torch.abs(M_e)
+            _, sorted_idx = torch.sort(scores, descending=True)
+
+            budget = 0.0
+            selected = []
+
+            for idx in sorted_idx:
+                cost = costs[idx].item()
+                if budget + cost > self.top_k:
+                    continue
+                selected.append(idx)
+                budget += cost
+                if budget == self.top_k:
+                    break
+
+            selected = torch.tensor(selected, dtype=torch.long)
+
+            sparse_mask = torch.zeros_like(M_e)
+            sparse_mask[selected] = 1
+
+            top_k_M_e = M_e * sparse_mask
 
             full_mask = torch.zeros_like(self.extended_sub_adj)
             for data in self.plan_added_node_idx + self.plan_deleted_node_idx:
@@ -217,6 +259,7 @@ class GNNPerturb(nn.Module):
                  lambda_dist: float = 0.5,
                  lambda_plau: float = 0.2,
                  top_k: int = 5,
+                 C: float = 1.0,
                  tau_plus: float = 0.5,
                  tau_minus: float = -0.5,
                  α1: float = 0.1,
@@ -249,10 +292,11 @@ class GNNPerturb(nn.Module):
         self.model_name = test_model
         self.dataset_name = dataset_name
         self.heads = heads
+        self.C = C
 
         # 扰动层
         print(f"Input extended_sub_adj.requires_grad: {extended_sub_adj.requires_grad}")
-        self.perturb_layer = SignedMaskPerturbation(extended_sub_adj, node_idx, node_num_l_hop, top_k, tau_plus,
+        self.perturb_layer = SignedMaskPerturbation(extended_sub_adj, node_idx, node_num_l_hop, top_k, C, tau_plus,
                                                     tau_minus, test_model, dataset_name)
 
         # GCN层定义
@@ -412,8 +456,14 @@ class GNNPerturb(nn.Module):
             dist_loss = torch.tensor(0.0)
         else:
             dist_loss = torch.sum(torch.abs(cf_adj - self.extended_sub_adj)) / 2
+            diff = cf_adj - self.extended_sub_adj
+            add_mask = (diff == 1)
+            num_additions = add_mask.sum() / 2
+            del_mask = (diff == -1)
+            num_deletions = del_mask.sum() / 2
+            dist_loss = self.C * num_additions + 1.0 * num_deletions
 
-        # 现实性损失
+            # 现实性损失
         if self.lambda_plau == 0:
             plau_loss = torch.tensor(0.0)
         else:

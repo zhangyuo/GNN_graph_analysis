@@ -7,12 +7,13 @@ import torch
 import numpy as np
 import pandas as pd
 from torch_geometric.transforms import RandomNodeSplit
-from torch_geometric.utils import k_hop_subgraph, dense_to_sparse, to_dense_adj, subgraph
+from torch_geometric.utils import k_hop_subgraph, dense_to_sparse, to_dense_adj, subgraph, remove_self_loops
 from deeprobust.graph.utils import classification_margin
 from deeprobust.graph.data import Dataset
 import scipy.sparse as sp
 from torch_geometric.utils import to_undirected
 import torch.nn.functional as F
+import torch
 
 
 def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
@@ -33,6 +34,7 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
         "BA-SHAPES": 10,
         "TREE-CYCLES": 20,
         "Loan-Decision": 20,
+        "chameleon": 5,
         "ogbn-arxiv": 1
     }[dataset_name]
     if attack_type is None:
@@ -396,6 +398,48 @@ class LoanDecisionDataset(Dataset):
         return np.random.choice(valid_nodes, size=int(ratio * self.num_nodes), replace=False)
 
 
+class ChameleonDataset(Dataset):
+    def __init__(self, chameleon_data):
+        self.pyg_data = chameleon_data[0]
+        self.name = 'chameleon'
+        self.num_nodes = self.pyg_data.num_nodes
+        self.num_features = self.pyg_data.num_node_features
+
+        # 提取关键数据组件
+        edge_set = set((u.item(), v.item()) for u, v in self.pyg_data.edge_index.t())
+        is_symmetric = all((v, u) in edge_set for (u, v) in edge_set)
+        print(f"Edge index is symmetric: {is_symmetric}")
+        if not is_symmetric:
+            edge_index = self.pyg_data.edge_index
+            edge_index, _ = remove_self_loops(edge_index)  # chameleon has self-loop edges (e.g., (u,u) or (v,v))
+            self.pyg_data.edge_index = to_undirected(edge_index)
+
+        self.adj = self.edge_index_to_adj(self.pyg_data.edge_index)
+        # self.orgi_adj = self.edge_index_to_adj(self.pyg_data.orgi_edge_index)
+        self.features = efficient_tensor_to_csr(self.pyg_data.x)
+        self.labels = self.pyg_data.y.view(-1).long().numpy()
+
+        # 创建训练/验证/测试掩码
+        self.idx_train = self._create_mask(0.50)
+        self.idx_val = self._create_mask(0.25, exclude=self.idx_train)
+        self.idx_test = self._create_mask(0.25, exclude=np.concatenate([self.idx_train, self.idx_val]))
+
+    def edge_index_to_adj(self, edge_index):
+        """将 PyG 的 edge_index 转换为邻接矩阵"""
+        import scipy.sparse as sp
+        row, col = edge_index
+        adj = sp.coo_matrix((np.ones(row.shape[0], dtype=np.float32), (row, col)),
+                            shape=(self.num_nodes, self.num_nodes))
+        return adj.tocsr()
+
+    def _create_mask(self, ratio, exclude=None):
+        """创建数据分割掩码"""
+        valid_nodes = np.arange(self.num_nodes)
+        if exclude is not None:
+            valid_nodes = np.setdiff1d(valid_nodes, exclude)
+        return np.random.choice(valid_nodes, size=int(ratio * self.num_nodes), replace=False)
+
+
 class OGBNArxivDataset(Dataset):
     def __init__(self, ogbn_arxiv_data):
         self.pyg_data = ogbn_arxiv_data[0]
@@ -409,7 +453,7 @@ class OGBNArxivDataset(Dataset):
         print(f"Edge index is symmetric: {is_symmetric}")
         if not is_symmetric:
             # self.pyg_data.orgi_edge_index = self.pyg_data.edge_index
-            self.pyg_data.edge_index = to_undirected(self.pyg_data.edge_index)
+            self.pyg_data.edge_index = to_undirected(self.pyg_data.edge_index)  # ogbn-arxiv has no self-loop edges, function of to_undirected can't delete self-loop by itself
 
         self.adj = self.edge_index_to_adj(self.pyg_data.edge_index)
         # self.orgi_adj = self.edge_index_to_adj(self.pyg_data.orgi_edge_index)
@@ -450,10 +494,6 @@ def efficient_tensor_to_csr(features):
 
     # 直接创建CSR矩阵
     return sp.csr_matrix(features_np)
-
-
-import torch
-import scipy.sparse as sp
 
 
 # 1. adj: PyG edge_index -> scipy.sparse

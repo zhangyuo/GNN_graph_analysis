@@ -120,6 +120,7 @@ log/*
 # data path
 #dataset/
 ogbn_arxiv
+chameleon
 
 # model file
 #*.pkl

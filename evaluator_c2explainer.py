@@ -4,7 +4,7 @@
 # @Time     : 2025/9/4 17:17
 # @Author   : **
 # @Email    : **@**
-# @File     : evaluator_ac_gnnexplainer.py
+# @File     : evaluator_cf_gnnexplainer.py
 # @Software : PyCharm
 # @Desc     :
 """
@@ -12,14 +12,13 @@ from __future__ import division
 from __future__ import print_function
 import sys
 import os
-import warnings
 
-warnings.filterwarnings("ignore")
 res = os.path.abspath(__file__)  # acquire absolute path of current file
 base_path = os.path.dirname(res)
 sys.path.insert(0, base_path)
-from ogb.nodeproppred import PygNodePropPredDataset
+
 from torch_geometric.utils import dense_to_sparse, to_undirected
+from ogb.nodeproppred import PygNodePropPredDataset
 from config.config import *
 from model.GAT import load_GATNet_model
 from model.GCN import load_GCN_model, dr_data_to_pyg_data
@@ -28,17 +27,18 @@ from model.GraphTransformer import load_GraphTransforer_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
     BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, compute_feat_sim, OGBNArxivDataset
 import numpy as np
+from counterfactual_explanation_subgraph.ACExplainer_subgraph.acexplainer_subgraph import evaluate_test_data
+
 import pandas as pd
 import pickle
 import torch
-from counterfactual_explanation_subgraph.ACExplainer_subgraph.acexplainer_subgraph import evaluate_test_data
 from deeprobust.graph.data import Dataset
 import torch.nn.functional as F
 
 ######################### evaluated parameters setting  #########################
 attack_type = ATTACK_TYPE
 attack_method = ATTACK_METHOD
-explainer_method = "ACExplainer"
+explainer_method = "C2Explainer"
 explanation_type = EXPLANATION_TYPE
 dataset_name = DATA_NAME
 attack_budget_list = ATTACK_BUDGET_LIST
@@ -161,30 +161,31 @@ if dataset_name == "ogbn-arxiv":
 target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, y_pred_orig, labels)
 target_node_list += target_node_list1
 target_node_list.sort()
+# target_node_list = [80]
 print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")
-# target_node_list = target_node_list[101:110]
 
 ######################### Load CF examples  #########################
-header = ['success', 'target_node', 'new_idx', 'added_edges', 'removed_edges', 'explanation_size', 'plau_loss',
-          'original_pred', 'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', 'sub_labels', 'new_idx_map_tgt_node']
+header = ["target_node", "new_idx", "cf_adj", "sub_adj", "y_pred_orig", "prob",
+          "sub_labels", "loss_graph_dist", "sub_feat", "success"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-11-19'
-counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{[MAX_EDITS]}-{SEED_NUM}'
+time_name = '2025-11-20'
+counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}-{SEED_NUM}'
 
 with open(
-        counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_epochs{NUM_EPOCHS_AC}_seed{SEED_NUM}",
+        counterfactual_explanation_subgraph_path + f"/{DATA_NAME}_cf_examples_gcnlayer{GCN_LAYER}_lr{LEARNING_RATE}_beta{BETA}_mom{N_Momentum}_epochs{NUM_EPOCHS}_seed{SEED_NUM}",
         "rb") as f:
     cf_examples = pickle.load(f)
     df_prep = []
     time_list = []
     for example in cf_examples:
         time_list.append(example["time_cost"])
-        if example["data"]:
+        if example["data"] != []:
             df_prep.append(example["data"])
-    df = pd.DataFrame(df_prep, columns=df_prep[0].keys())
+    df = pd.DataFrame(df_prep, columns=header)
 
 ######################### Metrics Evaluation  #########################
+# restrict_budget = 1  # for computation on different budgets
 misclas_num = 0
 fidelity = 0.0
 added_edges_num = 0.0
@@ -192,60 +193,47 @@ deleted_edges_num = 0.0
 edited_num = 0.0
 S_plau = 0.0
 for i in df.index:
-    orig_sub_adj = torch.tensor(df["extended_adj"][i])
+    orig_sub_adj = torch.tensor(df["sub_adj"][i])
     edited_sub_adj = torch.tensor(df["cf_adj"][i])
-    sub_feat = df["extended_feat"][i]
-    edited_norm_adj = normalize_adj(edited_sub_adj)
-    if test_model == "GCN":
-        new_label = gnn_model.forward(sub_feat, edited_norm_adj)
-    else:
-        edge_index, edge_weight = dense_to_sparse(edited_norm_adj)
-        new_label = gnn_model.forward(sub_feat, edge_index, edge_weight=edge_weight)
 
     # misclassification
-
-    #     if df["success"][i]:
-    #         misclas_num += 1
     if dataset_name == "ogbn-arxiv":
-        tgt_node_map_new_idx = df["target_node"][i]  # target node idx in new constructed subgraph
-        target_node = df["new_idx_map_tgt_node"][i][tgt_node_map_new_idx]
-        output_target_idx = idx_test.index(target_node)
+        output_target_idx = idx_test.index(df["target_node"][i])
     else:
         output_target_idx = df["target_node"][i]
 
     a1 = y_pred_orig[output_target_idx].argmax()
-    a2 = new_label[df["new_idx"][i]].argmax()
+    a2 = df["prob"][i].argmax()
     if a1.item() != a2.item():
         misclas_num += 1
-        # print(df["target_node"][i], df["new_idx"][i])
 
     # fidelity
     prob_pred_orig = torch.exp(y_pred_orig[output_target_idx])
     label_pred_orig = y_pred_orig[output_target_idx].argmax().item()
-    prob_new_actual = torch.exp(new_label[df["new_idx"][i]])
+    prob_new_actual = torch.exp(df["prob"][i])
     fidelity += prob_pred_orig[label_pred_orig] - prob_new_actual[label_pred_orig]
 
     # explanation size
-    if df["success"][i]:
-        added_edges_num += len(df["added_edges"][i])
-        deleted_edges_num += len(df["removed_edges"][i])
-        edited_num += df["explanation_size"][i]
+    # if df["success"][i]:
+    added_edges_num += 0.0
+    deleted_edges_num += df["loss_graph_dist"][i]
+    edited_num += df["loss_graph_dist"][i]
 
     # plausibility
     tt = 0.0
     if df["success"][i]:
-        # features = pyg_data.x
-        # for u,v in df["added_edges"][i]:
-        #     tt += compute_feat_sim(features[u], features[v])
-        # for u,v in df["removed_edges"][i]:
-        #     tt += compute_feat_sim(features[u], features[v])
-        # tt = tt / df["explanation_size"][i]
+        # perturbed_edges = df["sub_adj"][i] - df["cf_adj"][i]
+        # nonzero_indices = np.nonzero(perturbed_edges)
+        # perturbed_edge_list = list(zip(nonzero_indices[0], nonzero_indices[1]))
+        # perturbed_edge_list = [(u, v) for u, v in perturbed_edge_list if u < v]
+        # for u, v in perturbed_edge_list:
+        #     tt += compute_feat_sim(sub_feat[u], sub_feat[v])
+        # tt = tt / df["loss_graph_dist"][i]
         L_plau = α2 * compute_deg_diff(orig_sub_adj,
                                        edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
                                                                                  edited_sub_adj,
                                                                                  tau_c)
         S_plau += 2 * (1 - 1 / (1 + torch.exp(-1 * k * L_plau)))
-        # print(S_plau)
 
 print("Num of target nodes: ", len(target_node_list))
 print("Num of misclassification: ", misclas_num)

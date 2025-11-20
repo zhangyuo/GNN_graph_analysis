@@ -11,6 +11,7 @@
 import torch
 import numpy as np
 from ogb.nodeproppred import NodePropPredDataset
+from torch_geometric.datasets import WikipediaNetwork
 import os
 import pickle
 import sys
@@ -42,11 +43,17 @@ dataset_path = base_path + '/dataset'
 # homophily_ratio = edge_homophily(pyg_data.edge_index, pyg_data.y)
 
 
-# # 加载ogbn-arxiv数据集
+# # load ogbn-arxiv dataset
 # dataset = NodePropPredDataset(name='ogbn-arxiv', root=dataset_path)
 # graph, labels = dataset[0]
-# # 计算边同质性
+# # compute homophily ratio
 # homophily_ratio = edge_homophily(graph['edge_index'], labels)
+
+# load chameleon dataset
+dataset = WikipediaNetwork(root=dataset_path, name='chameleon')
+data = dataset[0]
+# compute homophily ratio
+homophily_ratio = edge_homophily(data.edge_index, data.y)
 
 
 # # Create PyG Data object
@@ -59,9 +66,9 @@ dataset_path = base_path + '/dataset'
 #     pyg_data = CPU_Unpickler(f).load()
 #     homophily_ratio = edge_homophily(pyg_data.edge_index, pyg_data.y)
 
-# Create PyG Data object
-with open(dataset_path + "/LoanDecision.pickle", "rb") as f:
-    pyg_data = CPU_Unpickler(f).load()
-    homophily_ratio = edge_homophily(pyg_data.edge_index, pyg_data.y)
+# # Create PyG Data object
+# with open(dataset_path + "/LoanDecision.pickle", "rb") as f:
+#     pyg_data = CPU_Unpickler(f).load()
+#     homophily_ratio = edge_homophily(pyg_data.edge_index, pyg_data.y)
 
-print(f"ogbn-arxiv Homophily Ratio: {homophily_ratio:.3f}")
+print(f"Homophily Ratio: {homophily_ratio:.3f}")

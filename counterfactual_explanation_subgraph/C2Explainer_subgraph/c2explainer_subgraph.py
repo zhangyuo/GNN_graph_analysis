@@ -328,7 +328,7 @@ if __name__ == '__main__':
     pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
     for target_node in tqdm(target_node_list):
         # initialize C2Explainer, use subgraph mode
-        explainer = C2Explainer(epochs=20, lr=0.1, silent_mode=True, undirected=True, subgraph_mode=False)
+        explainer = C2Explainer(epochs=1000, lr=0.1, silent_mode=True, undirected=True, subgraph_mode=False)
 
         # config Explainer：edge perturbation, do not change node feature
         explainer = Explainer(

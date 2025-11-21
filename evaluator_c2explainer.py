@@ -25,7 +25,7 @@ from model.GCN import load_GCN_model, dr_data_to_pyg_data
 from model.GraphConv import load_GraphConv_model
 from model.GraphTransformer import load_GraphTransforer_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
-    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, compute_feat_sim, OGBNArxivDataset
+    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, compute_feat_sim, OGBNArxivDataset, ChameleonDataset
 import numpy as np
 from counterfactual_explanation_subgraph.ACExplainer_subgraph.acexplainer_subgraph import evaluate_test_data
 
@@ -95,6 +95,17 @@ elif dataset_name == 'Loan-Decision':
         pyg_data = CPU_Unpickler(f).load()
     # Create deeprobust Data object
     data = LoanDecisionDataset(pyg_data)
+    adj, features, labels = data.adj, data.features, data.labels
+    idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+elif dataset_name == 'chameleon':
+    # Create PyG Data object
+    from torch_geometric.datasets import WikipediaNetwork
+    chameleon_data = WikipediaNetwork(name="chameleon", root=dataset_path)
+    pyg_data = chameleon_data[0]
+    pyg_data.y = pyg_data.y.view(-1).long()
+    # Create deeprobust Data object
+    data = ChameleonDataset(chameleon_data)
+    pyg_data.edge_index = data.pyg_data.edge_index
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
 elif dataset_name == 'ogbn-arxiv':
@@ -169,7 +180,7 @@ header = ["target_node", "new_idx", "cf_adj", "sub_adj", "y_pred_orig", "prob",
           "sub_labels", "loss_graph_dist", "sub_feat", "success"]
 
 # counterfactual explanation subgraph path
-time_name = '2025-11-20'
+time_name = '2025-11-21'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}-{SEED_NUM}'
 
 with open(
@@ -196,15 +207,22 @@ for i in df.index:
     orig_sub_adj = torch.tensor(df["sub_adj"][i])
     edited_sub_adj = torch.tensor(df["cf_adj"][i])
 
+    n = orig_sub_adj.shape[0]
+    triu_indices = torch.triu_indices(n, n, offset=1)
+
+    added_edges = ((orig_sub_adj[triu_indices[0], triu_indices[1]] == 0) &
+                   (edited_sub_adj[triu_indices[0], triu_indices[1]] == 1)).sum().item()
+
+    removed_edges = ((orig_sub_adj[triu_indices[0], triu_indices[1]] == 1) &
+                     (edited_sub_adj[triu_indices[0], triu_indices[1]] == 0)).sum().item()
+
     # misclassification
     if dataset_name == "ogbn-arxiv":
         output_target_idx = idx_test.index(df["target_node"][i])
     else:
         output_target_idx = df["target_node"][i]
 
-    a1 = y_pred_orig[output_target_idx].argmax()
-    a2 = df["prob"][i].argmax()
-    if a1.item() != a2.item():
+    if df["success"][i]:
         misclas_num += 1
 
     # fidelity
@@ -214,21 +232,14 @@ for i in df.index:
     fidelity += prob_pred_orig[label_pred_orig] - prob_new_actual[label_pred_orig]
 
     # explanation size
-    # if df["success"][i]:
-    added_edges_num += 0.0
-    deleted_edges_num += df["loss_graph_dist"][i]
-    edited_num += df["loss_graph_dist"][i]
+    if df["success"][i]:
+        added_edges_num += added_edges
+        deleted_edges_num += removed_edges
+        edited_num += df["loss_graph_dist"][i]
 
     # plausibility
     tt = 0.0
     if df["success"][i]:
-        # perturbed_edges = df["sub_adj"][i] - df["cf_adj"][i]
-        # nonzero_indices = np.nonzero(perturbed_edges)
-        # perturbed_edge_list = list(zip(nonzero_indices[0], nonzero_indices[1]))
-        # perturbed_edge_list = [(u, v) for u, v in perturbed_edge_list if u < v]
-        # for u, v in perturbed_edge_list:
-        #     tt += compute_feat_sim(sub_feat[u], sub_feat[v])
-        # tt = tt / df["loss_graph_dist"][i]
         L_plau = α2 * compute_deg_diff(orig_sub_adj,
                                        edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
                                                                                  edited_sub_adj,

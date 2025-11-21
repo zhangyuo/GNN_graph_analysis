@@ -505,7 +505,108 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
     return explainer
 
 
-def pg_explainer_generate_batch(test_model, gnn_model, device, features, labels, gcn_layer, pyg_data, data, target_node_list, epochs=30):
+def pg_explainer_generate_batch(test_model, gnn_model, device, features, labels, gcn_layer,
+                                pyg_data, data, target_node_list, epochs=30, verbose=True):
+
+    # --- model setup ---
+    if test_model == "GCN":
+        pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
+    else:
+        pyg_gcn = gnn_model
+
+    pyg_gcn = pyg_gcn.eval().to(device)
+    pyg_data = pyg_data.to(device)
+
+    # --- explainer init ---
+    explainer = Explainer(
+        model=pyg_gcn,
+        algorithm=PGExplainer(epochs=epochs, lr=0.01, emb_dim=128, hidden_dim=64),
+        explanation_type='phenomenon',
+        edge_mask_type='object',
+        model_config=dict(
+            mode='multiclass_classification',
+            task_level='node',
+            return_type='log_probs'
+        )
+    )
+
+    # --- get train indices robustly ---
+    train_indices = data.idx_train
+    if isinstance(train_indices, np.ndarray):
+        train_indices = torch.tensor(train_indices, dtype=torch.long, device=device)
+    else:
+        train_indices = train_indices.to(device)
+
+    edge_index_cpu = pyg_data.edge_index.cpu()
+
+    # filter isolated nodes
+    valid_train_indices = []
+    for idx in train_indices:
+        idx = int(idx.item())
+        deg = ((edge_index_cpu[0] == idx) | (edge_index_cpu[1] == idx)).sum().item()
+        if deg > 0:
+            valid_train_indices.append(idx)
+
+    valid_train_indices = torch.tensor(valid_train_indices, dtype=torch.long, device=device)
+
+    # --- training PGExplainer ---
+    for epoch in tqdm(range(epochs), desc='Main Epochs'):
+        total_loss = 0
+        used = 0
+
+        for target_idx in tqdm(valid_train_indices, desc='Nodes Analysis'):
+            target_idx = int(target_idx.item())
+
+            # extract subgraph
+            subset, edge_index_sub, mapping, _ = k_hop_subgraph(
+                target_idx,
+                num_hops=gcn_layer,
+                edge_index=edge_index_cpu,
+                relabel_nodes=True
+            )
+
+            mapping = int(mapping)
+
+            # move subgraph tensors to device
+            subset_dev = subset.to(device)
+            edge_index_sub = edge_index_sub.to(device)
+
+            x_sub = pyg_data.x[subset_dev]
+            y_sub = pyg_data.y[subset_dev]              # shape: (num_sub_nodes,)
+
+            # debug forward
+            with torch.no_grad():
+                y_hat = pyg_gcn(x_sub, edge_index_sub)
+                if isinstance(y_hat, tuple):
+                    y_hat = y_hat[0]
+
+            # print(f"[Forward Check] node={target_idx} x_sub={x_sub.shape} y_sub={y_sub.shape} y_hat={y_hat.shape}")
+
+            # --- 关键部分：正确构建 target / index ---
+            target_tensor = y_sub                          # (num_sub_nodes,)  NOT a scalar
+            index_tensor = torch.tensor([mapping],         # (1,)
+                                       dtype=torch.long,
+                                       device=device)
+
+            # training step
+            loss = explainer.algorithm.train(
+                model=pyg_gcn,
+                x=x_sub,
+                epoch=epoch,
+                edge_index=edge_index_sub,
+                target=target_tensor,      # full y_sub
+                index=index_tensor         # target node position
+            )
+
+            total_loss += float(loss)
+            used += 1
+
+        print(f"Epoch {epoch+1}/{epochs}: used={used}, avg_loss={total_loss/used:.4f}")
+
+    return explainer
+
+
+def pg_explainer_generate_batch_(test_model, gnn_model, device, features, labels, gcn_layer, pyg_data, data, target_node_list, epochs=30):
     if test_model == "GCN":
         pyg_gcn = GCNtoPYG(gnn_model, device, features, labels, gcn_layer)
     else:
@@ -513,9 +614,7 @@ def pg_explainer_generate_batch(test_model, gnn_model, device, features, labels,
 
     pyg_gcn.eval()
     pyg_gcn = pyg_gcn.to(device)
-    pyg_data.x = pyg_data.x.to(device)
-    pyg_data.edge_index = pyg_data.edge_index.to(device)
-    pyg_data.y = pyg_data.y.to(device)
+    pyg_data = pyg_data.to(device)
 
     # ⚡ 使用 Explainer 封装 PGExplainer
     explainer = Explainer(
@@ -530,29 +629,56 @@ def pg_explainer_generate_batch(test_model, gnn_model, device, features, labels,
         )
     )
 
+    # PGExplainer needs to be trained based on nodes set after initializing
+    train_indices = data.idx_train
+    if isinstance(train_indices, np.ndarray):
+        train_indices = torch.tensor(train_indices, dtype=torch.long, device=device)
+    else:
+        train_indices = train_indices.to(device)
+
+    # 过滤掉孤立节点
+    valid_train_indices = []
+    for idx in train_indices:
+        idx_int = idx.item()
+        deg = ((pyg_data.edge_index[0] == idx_int) | (pyg_data.edge_index[1] == idx_int)).sum().item()
+        if deg > 0:
+            valid_train_indices.append(idx_int)
+
+    if len(valid_train_indices) == 0:
+        raise ValueError("没有找到有效训练节点（可能全部训练节点都是孤立节点）。")
+
+    valid_train_indices = torch.tensor(valid_train_indices, dtype=torch.long, device=device)
+
+    if len(train_indices) == 0:
+        raise ValueError("没有找到有效训练节点（可能全部训练节点都是孤立节点）。")
+
     # ⚡ 先训练 PGExplainer
     for epoch in range(epochs):
         total_loss = 0
-        for target in target_node_list:
+        for target in valid_train_indices:
             # 抽取 k-hop 子图
             subset, edge_index_sub, mapping, edge_mask = k_hop_subgraph(
-                target, num_hops=gcn_layer, edge_index=pyg_data.edge_index, relabel_nodes=True
+                target.item(), num_hops=gcn_layer, edge_index=pyg_data.edge_index, relabel_nodes=True
             )
+
             x_sub = pyg_data.x[subset]
             y_sub = pyg_data.y[subset]
+
+            mapping = int(mapping)
+            target_label = y_sub[mapping]
 
             # train 方法更新内部 mask
             loss = explainer.algorithm.train(
                 model=pyg_gcn,
                 x=x_sub,
-                epoch=epochs,
+                epoch=epoch,
                 edge_index=edge_index_sub,
-                target=y_sub,
+                target=target_label,
                 index=mapping
             )
             total_loss += loss
 
-        print(f"Epoch {epoch + 1}, Avg loss: {total_loss / len(target_node_list):.4f}")
+        print(f"Epoch {epoch + 1}, Avg loss: {total_loss / len(valid_train_indices):.4f}")
 
     # # ⚡ 训练完毕后，再用 explainer() 对单节点解释
     # # 示例: target_node = target_node_list[0]

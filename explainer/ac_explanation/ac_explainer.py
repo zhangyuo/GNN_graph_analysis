@@ -228,6 +228,7 @@ class ACExplainer:
                 break
             self.scheduler.step()
 
+        print("Start minimality pruning")
         if best_delta_A is not None:
             # 后剪枝
             if PRUNING:
@@ -261,6 +262,8 @@ class ACExplainer:
                 "new_pred": best_pred_1,  # 验证预测
                 "plau_loss": best_plau_loss_1
             }
+
+        print("Finish minimality pruning")
 
         return final_result
 
@@ -350,6 +353,7 @@ class ACExplainer:
         return grad_matrix
 
     def _validate_pruning(self, delta_A, perturb_layer):
+        print("Start validating flip")
         with torch.no_grad():
             perturbed_adj = perturb_layer.build_perturbed_adj(
                 self.extended_sub_adj,
@@ -365,4 +369,5 @@ class ACExplainer:
             else:
                 output = None
 
+            print("Finish validating flip")
             return output[self.node_idx].argmax()

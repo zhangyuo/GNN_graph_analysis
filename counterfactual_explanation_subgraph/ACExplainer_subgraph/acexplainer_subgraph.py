@@ -266,7 +266,9 @@ def generate_acexplainer_subgraph(df_orbit,
     )
 
     # 8. 训练解释器
+    print("Start cf generating!")
     result = explainer.explain()
+    print("Finish cf generating!")
 
     time_cost = time.time() - start
 
@@ -274,19 +276,33 @@ def generate_acexplainer_subgraph(df_orbit,
     added_edges = []
     removed_edges = []
 
+    print("Start index mapping!")
     delta_A = result["delta_A"]
-    for i in range(delta_A.size(0)):
-        for j in range(i + 1, delta_A.size(1)):
-            if delta_A[i, j] > TAU_PLUS and extended_adj[i, j] == 0:  # 添加的边
-                orig_i = extended_nodes[i]
-                orig_j = extended_nodes[j]
-                added_edges.append((orig_i, orig_j))
-            elif delta_A[i, j] < TAU_MINUS and extended_adj[i, j] == 1:  # 删除的边
-                orig_i = extended_nodes[i]
-                orig_j = extended_nodes[j]
-                removed_edges.append((orig_i, orig_j))
+    # for i in range(delta_A.size(0)):
+    #     for j in range(i + 1, delta_A.size(1)):
+    #         if delta_A[i, j] > TAU_PLUS and extended_adj[i, j] == 0:  # 添加的边
+    #             orig_i = extended_nodes[i]
+    #             orig_j = extended_nodes[j]
+    #             added_edges.append((orig_i, orig_j))
+    #         elif delta_A[i, j] < TAU_MINUS and extended_adj[i, j] == 1:  # 删除的边
+    #             orig_i = extended_nodes[i]
+    #             orig_j = extended_nodes[j]
+    #             removed_edges.append((orig_i, orig_j))
+
+    triu_mask = torch.triu(torch.ones_like(delta_A, dtype=torch.bool), diagonal=1)
+    add_mask = (delta_A > TAU_PLUS) & (extended_adj == 0) & triu_mask
+    add_indices = add_mask.nonzero(as_tuple=False)
+    remove_mask = (delta_A < TAU_MINUS) & (extended_adj == 1) & triu_mask
+    remove_indices = remove_mask.nonzero(as_tuple=False)
+    added_edges = [(extended_nodes[i.item()], extended_nodes[j.item()])
+                   for i, j in add_indices]
+    removed_edges = [(extended_nodes[i.item()], extended_nodes[j.item()])
+                     for i, j in remove_indices]
+
+    print("Finish index mapping!")
 
     # 10. generate subgraph
+    print("Start subgraph visualizing!")
     subgraph = {
         "subgraph": None,
         "true_subgraph": None,

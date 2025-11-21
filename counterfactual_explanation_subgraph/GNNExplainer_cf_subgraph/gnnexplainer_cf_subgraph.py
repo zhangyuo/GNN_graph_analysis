@@ -34,7 +34,7 @@ from tqdm import tqdm
 from config.config import *
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
 from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, \
-    LoanDecisionDataset, OGBNArxivDataset
+    LoanDecisionDataset, OGBNArxivDataset, ChameleonDataset
 from instance_level_explanation_subgraph.GNNExplainer_subgraph.generate_gnnexplainer_subgraph import \
     generate_gnnexplainer_cf_subgraph
 from subgraph_quantify.graph_analysis import gnn_explainer_generate
@@ -115,6 +115,17 @@ if __name__ == '__main__':
             pyg_data = CPU_Unpickler(f).load()
         # Create deeprobust Data object
         data = LoanDecisionDataset(pyg_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'chameleon':
+        # Create PyG Data object
+        from torch_geometric.datasets import WikipediaNetwork
+        chameleon_data = WikipediaNetwork(name="chameleon", root=dataset_path)
+        pyg_data = chameleon_data[0]
+        pyg_data.y = pyg_data.y.view(-1).long()
+        # Create deeprobust Data object
+        data = ChameleonDataset(chameleon_data)
+        pyg_data.edge_index = data.pyg_data.edge_index
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     elif dataset_name == 'ogbn-arxiv':

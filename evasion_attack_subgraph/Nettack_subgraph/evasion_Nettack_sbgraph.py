@@ -43,7 +43,7 @@ from deeprobust.graph.utils import classification_margin
 from config.config import *
 from utilty.utils import CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, normalize_adj, \
     select_test_nodes, OGBNArxivDataset, compute_deg_diff, compute_motif_viol, edge_index_to_adj, tensor_to_sparse, \
-    tensor_to_numpy
+    tensor_to_numpy, ChameleonDataset
 from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
 import torch.nn.functional as F
 
@@ -119,6 +119,17 @@ if __name__ == '__main__':
             pyg_data = CPU_Unpickler(f).load()
         # Create deeprobust Data object
         data = LoanDecisionDataset(pyg_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'chameleon':
+        # Create PyG Data object
+        from torch_geometric.datasets import WikipediaNetwork
+        chameleon_data = WikipediaNetwork(name="chameleon", root=dataset_path)
+        pyg_data = chameleon_data[0]
+        pyg_data.y = pyg_data.y.view(-1).long()
+        # Create deeprobust Data object
+        data = ChameleonDataset(chameleon_data)
+        pyg_data.edge_index = data.pyg_data.edge_index
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     elif dataset_name == 'ogbn-arxiv':
@@ -212,9 +223,9 @@ if __name__ == '__main__':
     test_cf_examples = []
     mis_cases = 0
     for num_idx, target_node in enumerate(tqdm(target_node_list)):
-        if num_idx == 15:
-            pass
-        print(num_idx)
+        # if num_idx == 15:
+        #     pass
+        # print(num_idx)
         start_time = time.time()
 
         # construct new subgraph: l+1 hop and attack nodes

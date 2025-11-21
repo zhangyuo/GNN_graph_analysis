@@ -154,6 +154,9 @@ def generate_gnnexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_da
     cf_example = None
     threshold = 0
     edge_importance = edge_mask[edge_mask > threshold].detach().cpu().numpy()
+    if len(edge_importance) == 0:
+        threshold = -1
+        edge_importance = edge_mask[edge_mask > threshold].detach().cpu().numpy()
     edge_index = explanation.edge_index[:, edge_mask > threshold].cpu().numpy()
 
     # 1. 将边索引和重要性值组合成元组列表

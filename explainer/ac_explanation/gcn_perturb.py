@@ -82,15 +82,28 @@ class SignedMaskPerturbation(nn.Module):
         except:
             init_value = self.tau_minus
         init_value += 0.01*torch.randn(1).item()
+
         ones_indices = torch.nonzero(self.extended_sub_adj == 1)
         non_diagonal_ones = ones_indices[ones_indices[:, 0] != ones_indices[:, 1]].tolist()
-        for i in range(len(non_diagonal_ones)):
-            if non_diagonal_ones[i][0] in lhop_node_index and non_diagonal_ones[i][1] in lhop_node_index and \
-                    non_diagonal_ones[i][0] < non_diagonal_ones[i][1]:
-                # 现有边初始化为小负数 (倾向删除)
-                mask_init_values.append(init_value)
-                self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i], True])  # True denotes that orignal adj have edge
-                mask_index += 1
+
+        if self.dataset_name == "chameleon":  # simplification in complex edges relation for target node
+            target_idx = self.node_idx
+            neighbors = torch.nonzero(self.extended_sub_adj[target_idx] == 1).flatten().tolist()
+            for nbr in neighbors:
+                if nbr != target_idx and nbr in lhop_node_index:
+                    a, b = sorted([target_idx, nbr])
+                    mask_init_values.append(init_value)
+                    self.plan_deleted_node_idx.append([mask_index, [a, b], True])
+                    mask_index += 1
+        else:
+            for i in range(len(non_diagonal_ones)):
+                if non_diagonal_ones[i][0] in lhop_node_index and non_diagonal_ones[i][1] in lhop_node_index and \
+                        non_diagonal_ones[i][0] < non_diagonal_ones[i][1]:
+                    # 现有边初始化为小负数 (倾向删除)
+                    mask_init_values.append(init_value)
+                    self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i], True])  # True denotes that orignal adj have edge
+                    mask_index += 1
+
         # 遍历所有attack_nodes，针对无现有边场景倾向添加，但需要抑制加边
         # init_value = 0.8  # GCN：0.4 GraphConv:0.55 GraphTransformer: 0.8
         try:
@@ -103,6 +116,7 @@ class SignedMaskPerturbation(nn.Module):
         except:
             init_value = self.tau_plus
         init_value -= 0.01 * torch.randn(1).item()
+
         for i in attack_nodes_idx:
             if i != self.node_idx:
                 mask_init_values.append(init_value)

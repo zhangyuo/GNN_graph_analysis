@@ -12,7 +12,7 @@
 TEST_MODEL = "GCN"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
 
 # dataset
-DATA_NAME = "chameleon"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "chameleon", "ogbn-arxiv"]
+DATA_NAME = "TREE-CYCLES"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "chameleon", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
@@ -22,7 +22,7 @@ SEED_NUM = 102  # first experiment is 102, 103, 104
 
 ################ Explainer parameters ################
 EXPLANATION_TYPE = 'counterfactual'  # ['instance-level', 'class-level', 'counterfactual']
-EXPLAINER_METHOD = 'C2Explainer'  # ['GNNExplainer', 'PGExplainer', 'CFExplainer', 'ACExplainer', 'C2Explainer', 'INDUCE']
+EXPLAINER_METHOD = 'C2Explainer'  # ['GNNExplainer','PGExplainer','CFExplainer','ACExplainer','C2Explainer','INDUCE']
 ####################################################################
 
 ################ GNN model parameters for datasets ################

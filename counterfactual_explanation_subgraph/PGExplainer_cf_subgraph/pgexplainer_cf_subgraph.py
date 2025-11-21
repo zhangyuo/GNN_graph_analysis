@@ -38,7 +38,7 @@ from tqdm import tqdm
 from config.config import *
 from model.GCN import GCN_model, dr_data_to_pyg_data_mask, load_GCN_model, dr_data_to_pyg_data
 from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, TreeCyclesDataset, \
-    LoanDecisionDataset, OGBNArxivDataset
+    LoanDecisionDataset, OGBNArxivDataset, ChameleonDataset
 from subgraph_quantify.graph_analysis import pg_explainer_generate, pg_explainer_generate_batch
 import torch.nn.functional as F
 
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     # attack_budget_list = [15]
     budget = attack_budget_list[0]
     time_name = datetime.now().strftime("%Y-%m-%d")
-    time_name = "2025-09-24"
+    # time_name = "2025-09-24"
     # counterfactual explanation subgraph path
     counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}-{SEED_NUM}'
     if not os.path.exists(counterfactual_explanation_subgraph_path):
@@ -114,6 +114,17 @@ if __name__ == '__main__':
             pyg_data = CPU_Unpickler(f).load()
         # Create deeprobust Data object
         data = LoanDecisionDataset(pyg_data)
+        adj, features, labels = data.adj, data.features, data.labels
+        idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+    elif dataset_name == 'chameleon':
+        # Create PyG Data object
+        from torch_geometric.datasets import WikipediaNetwork
+        chameleon_data = WikipediaNetwork(name="chameleon", root=dataset_path)
+        pyg_data = chameleon_data[0]
+        pyg_data.y = pyg_data.y.view(-1).long()
+        # Create deeprobust Data object
+        data = ChameleonDataset(chameleon_data)
+        pyg_data.edge_index = data.pyg_data.edge_index
         adj, features, labels = data.adj, data.features, data.labels
         idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     elif dataset_name == 'ogbn-arxiv':
@@ -193,7 +204,7 @@ if __name__ == '__main__':
             explainer = pickle.load(fr)
     except:
         # 抽取子图
-        if dataset_name == 'ogbn-arxiv':
+        if dataset_name in ['ogbn-arxiv', 'chameleon']:
             explainer = pg_explainer_generate_batch(test_model, gnn_model, device, features, labels, gcn_layer,
                                                     pyg_data, data, target_node_list, epochs=10)
         else:

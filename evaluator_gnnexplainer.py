@@ -26,7 +26,7 @@ from model.GCN import load_GCN_model
 from model.GraphConv import load_GraphConv_model
 from model.GraphTransformer import load_GraphTransforer_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
-    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset
+    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset, ChameleonDataset
 import numpy as np
 
 import pandas as pd
@@ -93,6 +93,17 @@ elif dataset_name == 'Loan-Decision':
         pyg_data = CPU_Unpickler(f).load()
     # Create deeprobust Data object
     data = LoanDecisionDataset(pyg_data)
+    adj, features, labels = data.adj, data.features, data.labels
+    idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
+elif dataset_name == 'chameleon':
+    # Create PyG Data object
+    from torch_geometric.datasets import WikipediaNetwork
+    chameleon_data = WikipediaNetwork(name="chameleon", root=dataset_path)
+    pyg_data = chameleon_data[0]
+    pyg_data.y = pyg_data.y.view(-1).long()
+    # Create deeprobust Data object
+    data = ChameleonDataset(chameleon_data)
+    pyg_data.edge_index = data.pyg_data.edge_index
     adj, features, labels = data.adj, data.features, data.labels
     idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
 elif dataset_name == 'ogbn-arxiv':
@@ -167,7 +178,7 @@ header = ['success', 'target_node', 'new_idx', 'added_edges', 'removed_edges', '
 
 # counterfactual explanation subgraph path
 # attack_budget_list = [5]
-time_name = '2025-09-24'
+time_name = '2025-11-20'
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{attack_budget_list}-{SEED_NUM}'
 
 with open(

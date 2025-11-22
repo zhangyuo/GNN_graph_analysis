@@ -224,9 +224,15 @@ class C2Explainer(ExplainerAlgorithm):
                 a = torch.zeros(x.shape).to(x.device)
                 a[index,0] += 10*self.feature_perturbation_matrix
                 h = x + a
-                
-            y_hat, y = model(h, edge_index=all_edge_index,
-                             edge_weight=all_edge_mask, **kwargs), target
+
+            # flag = False
+            # if 'edge_weight' in kwargs.keys():
+            #     flag = True
+            #     kwargs.pop('edge_weight')
+            #     y_hat, y = model(h, edge_index=all_edge_index, edge_weight=all_edge_mask, **kwargs), target
+            # else:
+            y_hat, y = model(h, edge_index=all_edge_index, edge_weight=all_edge_mask, **kwargs), target
+
             if index is not None:
                 y_hat = y_hat[index]
             else:
@@ -267,7 +273,13 @@ class C2Explainer(ExplainerAlgorithm):
                     cf_edge_mask=all_edge_mask.detach().clone()
                 cf_edge_index = all_edge_index[:, cf_edge_mask.to(torch.bool)]
                 assert is_undirected(cf_edge_index)
+
+                # if flag:
+                #     y_hat = model(h, cf_edge_index, **kwargs)
+                # else:
                 y_hat = model(h, cf_edge_index, **kwargs)
+
+
                 if index is not None:
                     y_hat = y_hat[index]
                 else:

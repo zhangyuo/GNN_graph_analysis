@@ -28,12 +28,12 @@ from torch_geometric.utils import k_hop_subgraph, subgraph, to_dense_adj, dense_
 from tqdm import tqdm
 from counterfactual_explanation_subgraph.ACExplainer_subgraph.acexplainer_subgraph import evaluate_test_data
 from model.DenseGAT import load_DenseGATNet_model
-from model.GAT import load_GATNet_model
+from model.GATNoWeight import load_GATNet_model
 from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
 from config.config import *
 from explainer.cf_explanation.cf_explainer import CFExplainer
 from model.GraphConv import load_GraphConv_model
-from model.GraphTransformer import load_GraphTransforer_model
+from model.GraphTransformerNoWeight import load_GraphTransforer_model
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
 from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
     TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset, ChameleonDataset
@@ -98,9 +98,7 @@ def generate_c2explainer_subgraph(target_node, explainer, pyg_data, adj, feature
         print("Output original model, sub adj: {}".format(model.forward(sub_feat, norm_sub_adj)[new_idx]))
         print("Output original model, sub adj: label={}".format(model.forward(sub_feat, norm_sub_adj)[new_idx].argmax()))
     elif test_model in ["GraphTransformer", "GAT", "GraphConv"]:
-        edge_index, edge_weight = dense_to_sparse(norm_sub_adj)
-        print("Output original model, sub adj: {}".format(
-            model.forward(sub_feat, edge_index, edge_weight=edge_weight)[new_idx]))
+        print("Output original model, sub adj: {}".format(model.forward(sub_feat, sub_edge_index)[new_idx]))
 
     if dataset_name == "ogbn-arxiv":
         y_pred_orig = output.argmax(dim=1)[output_idx.index(target_node)]
@@ -113,9 +111,6 @@ def generate_c2explainer_subgraph(target_node, explainer, pyg_data, adj, feature
         if test_model == "GCN":
             explanation = explainer(pyg_data.x, pyg_data.edge_index, index=target_node)
         else:
-            # norm_adj = normalize_adj(torch.tensor(adj.toarray()))
-            # edge_index_new, edge_weight_new = dense_to_sparse(norm_adj)
-            # explanation = explainer(pyg_data.x, edge_index=edge_index_new, edge_weight=edge_weight_new, index=target_node)
             explanation = explainer(pyg_data.x, pyg_data.edge_index, index=target_node)
 
     time_cost = time.time() - start
@@ -310,9 +305,8 @@ if __name__ == '__main__':
         gnn_model = load_GraphTransforer_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer,
                                                heads_num)
         dense_adj = torch.tensor(adj.toarray())
-        norm_adj = normalize_adj(dense_adj)
-        edge_index, edge_weight = dense_to_sparse(norm_adj)
-        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
+        edge_index, _ = dense_to_sparse(dense_adj)
+        pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index)
     elif test_model == 'GraphConv':
         file_path = os.path.join(model_save_path, 'graphConv_model.pth')
         gnn_model = load_GraphConv_model(file_path, data, nhid, dropout, device, lr, weight_decay, gcn_layer)
@@ -352,7 +346,7 @@ if __name__ == '__main__':
         pyg_gcn = gnn_model
     for target_node in tqdm(target_node_list):
         # initialize C2Explainer, use subgraph mode
-        explainer = C2Explainer(epochs=300, lr=0.1, silent_mode=True, undirected=True, subgraph_mode=False)
+        explainer = C2Explainer(epochs=200, lr=0.1, silent_mode=True, undirected=True, subgraph_mode=False)
 
         # config Explainer：edge perturbation, do not change node feature
         explainer = Explainer(

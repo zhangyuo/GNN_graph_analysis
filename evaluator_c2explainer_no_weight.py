@@ -20,10 +20,10 @@ sys.path.insert(0, base_path)
 from torch_geometric.utils import dense_to_sparse, to_undirected
 from ogb.nodeproppred import PygNodePropPredDataset
 from config.config import *
-from model.GAT import load_GATNet_model
+from model.GATNoWeight import load_GATNet_model
 from model.GCN import load_GCN_model, dr_data_to_pyg_data
 from model.GraphConv import load_GraphConv_model
-from model.GraphTransformer import load_GraphTransforer_model
+from model.GraphTransformerNoWeight import load_GraphTransforer_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
     BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, compute_feat_sim, OGBNArxivDataset, ChameleonDataset
 import numpy as np

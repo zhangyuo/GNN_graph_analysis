@@ -34,33 +34,33 @@ class SignedMaskPerturbation(nn.Module):
                  test_model: str = "GCN",
                  dataset_name: str = "cora"):
         """
-        AC-Explainer的带符号掩码扰动模块
-        参数:
-            extended_sub_adj: 扩展后的子图邻接矩阵 [n, n]
-            node_idx: 目标节点在扩展子图中的索引
-            top_k: 保留的最大边数 (默认5)
-            tau_plus: 添加边的阈值 (默认0.5)
-            tau_minus: 删除边的阈值 (默认-0.5)
+        The symbolic masking perturbation module of AC-Explainer
+        Parameters:
+        extended_sub_adj: Extended subgraph adjacency matrix [n, n]
+        node_idx: Index of the target node in the extended subgraph
+        top_k: Maximum number of edges to retain (default 5)
+        tau_plus: Threshold for adding edges (default 0.5)
+        tau_minus: Threshold for removing edges (default -0.5)
         """
         super().__init__()
-        self.extended_sub_adj = extended_sub_adj  # 克隆扩展子图邻接矩阵，避免影响原数据
-        self.node_idx = node_idx  # 目标节点在子图中的索引
-        self.tau_plus = tau_plus  # 添加边的阈值
-        self.tau_minus = tau_minus  # 删除边的阈值
+        self.extended_sub_adj = extended_sub_adj  # Clone and expand the subgraph adjacency matrix to avoid affecting the original data
+        self.node_idx = node_idx  # The index of the target node in the subgraph
+        self.tau_plus = tau_plus  # Add edge threshold
+        self.tau_minus = tau_minus  # Threshold for edge deletion
         self.node_num_l_hop = node_num_l_hop
         self.C = C
-        self.top_k = top_k  # 保留的最大边修改数量
-        self.n_nodes = extended_sub_adj.size(0)  # 扩展子图中的节点数
+        self.top_k = top_k  # The maximum number of edge modifications to retain
+        self.n_nodes = extended_sub_adj.size(0)  # Expand the number of nodes in a subgraph
         self.plan_added_node_idx = []
         self.plan_deleted_node_idx = []
         self.test_model = test_model
         self.dataset_name = dataset_name
 
-        # 初始化带符号的掩码参数
+        # Initialize signed mask parameters
         self.M = self._initialize_mask()
 
     def _initialize_mask(self) -> nn.Parameter:
-        """根据目标节点和扩展子图初始化掩码"""
+        """Initialize the mask based on the target node and the expanded subgraph"""
         eps = 10 ** -4
         mask_init_values = []
         mask_index = 0
@@ -69,7 +69,7 @@ class SignedMaskPerturbation(nn.Module):
         attack_nodes_idx = [node_dict[ad] for ad in attack_nodes]
         lhop_node_index = [node_dict[ni] for ni in node_index]
 
-        # 遍历extended_sub_adj中所有现有边
+        # Traverse all existing edges in extended_sub_adj
         # sub_adj = self.extended_sub_adj[lhop_node_index, :][:, lhop_node_index]
         # init_value = -0.8  # GCN:-0.5 GraphConv:-1.0 GraphTransformer: -0.8
         try:
@@ -99,12 +99,12 @@ class SignedMaskPerturbation(nn.Module):
             for i in range(len(non_diagonal_ones)):
                 if non_diagonal_ones[i][0] in lhop_node_index and non_diagonal_ones[i][1] in lhop_node_index and \
                         non_diagonal_ones[i][0] < non_diagonal_ones[i][1]:
-                    # 现有边初始化为小负数 (倾向删除)
+                    # Existing edges are initialized to small negative numbers (favoring deletion)
                     mask_init_values.append(init_value)
                     self.plan_deleted_node_idx.append([mask_index, non_diagonal_ones[i], True])  # True denotes that orignal adj have edge
                     mask_index += 1
 
-        # 遍历所有attack_nodes，针对无现有边场景倾向添加，但需要抑制加边
+        # Traverse all attack_nodes, and tend to add them in scenarios where there are no existing edges, but the addition of edges needs to be suppressed.
         # init_value = 0.8  # GCN：0.4 GraphConv:0.55 GraphTransformer: 0.8
         try:
             init_value = {
@@ -130,20 +130,20 @@ class SignedMaskPerturbation(nn.Module):
 
     def _apply_discretization(self, M_e: torch.Tensor) -> torch.Tensor:
         """
-        应用TopK稀疏化 (仅保留梯度最大的k个扰动)
-        应用三值离散化：-1(删除), 0(不变), +1(添加)
+        Apply TopK sparsification (retain only the k largest perturbations in the gradient)
+        Apply ternary discretization: -1 (delete), 0 (remain unchanged), +1 (add)
         """
-        # with torch.no_grad():  # 离散化操作不需要梯度
-        #     # 应用TopK稀疏化 (仅保留梯度最大的k个扰动)
-        #     abs_values = torch.abs(M_e)  # 计算连续掩码的绝对值（衡量扰动强度
+        # with torch.no_grad(): # Discretization operations do not require gradients
+        #     #Apply TopK sparsification (retain only the k perturbations with the largest gradients)
+        #     abs_values = torch.abs(M_e) # Calculate the absolute value of the continuous mask (a measure of the intensity of the disturbance
         #     top_k_M_e = M_e
         #     if len(M_e) > self.top_k:
-        #         # 找出绝对值最大的top_k个索引
+        #         # Find the top_k indexes with the largest absolute values
         #         # keep_k = min(self.top_k, int(0.5 * len(M_e)))
         #         topk_indices = torch.topk(abs_values, self.top_k).indices
-        #         sparse_mask = torch.zeros_like(M_e)  # 创建全0掩码
-        #         sparse_mask[topk_indices] = 1  # 仅将top_k个位置设为1
-        #         top_k_M_e = M_e * sparse_mask  # 应用稀疏掩码
+        #         sparse_mask = torch.zeros_like(M_e) # Create an all-0 mask
+        #         sparse_mask[topk_indices] = 1 # Set only top_k positions to 1
+        #         top_k_M_e = M_e * sparse_mask # Apply sparse mask
 
         with torch.no_grad():
             costs = torch.zeros_like(M_e)
@@ -187,7 +187,7 @@ class SignedMaskPerturbation(nn.Module):
             #         full_mask[i, self.node_idx] = top_k_M_e[edge_idx]
             #         edge_idx += 1
 
-            # 计算离散值(使用torch.where进行三值化)
+            # Calculate discrete values (use torch.where for ternarization)
             delta_A = torch.where(
                 full_mask > self.tau_plus,
                 1,
@@ -202,8 +202,8 @@ class SignedMaskPerturbation(nn.Module):
 
     def train_forward(self) -> torch.Tensor:
         """
-        训练模式：返回连续近似的mask（保持梯度)
-        使用直通梯度估计器保持可微性
+        Training mode: Return consecutive approximate masks (while preserving gradients)
+        Use a direct gradient estimator to maintain differentiability
         """
         full_mask = torch.zeros_like(self.extended_sub_adj)
         for data in self.plan_added_node_idx + self.plan_deleted_node_idx:
@@ -218,42 +218,42 @@ class SignedMaskPerturbation(nn.Module):
         return full_mask
 
     def predict_forward(self) -> torch.Tensor:
-        """预测模式：返回完全离散的mask（无梯度）"""
+        """Prediction mode: Return completely discrete masks (without gradients)"""
         M_e = torch.tanh(self.M)
         delta_A = self._apply_discretization(M_e)
         return delta_A
 
     def build_perturbed_adj(self, adj, delta_A):
         perturbed_adj = torch.where(
-            delta_A == 1,  # 条件：如果 delta_A 指示“增加边”
-            torch.ones_like(adj),  # 则对应位置设为 1
+            delta_A == 1,  # Condition: if delta_A indicates "add edge"
+            torch.ones_like(adj),  # Then the corresponding position is set to 1
             torch.where(
-                delta_A == -1,  # 否则，如果 delta_A 指示“删除边”
-                torch.zeros_like(adj),  # 则对应位置设为 0
-                adj  # 否则（delta_A == 0），保持原邻接矩阵的值不变
+                delta_A == -1,  # Otherwise, if delta_A indicates "delete edge"
+                torch.zeros_like(adj),  # Then the corresponding position is set to 0
+                adj  # Otherwise (delta_A == 0), keep the value of the original adjacency matrix unchanged.
             )
         )
         return perturbed_adj
 
     def ste_perturbed_adj(self, adj, full_mask):
-        # 1. 通过 tanh 将 full_mask 映射到 [-1, 1] 区间，这是一个可微操作
-        continuous_mask = torch.tanh(full_mask)  # 保持梯度流
-        # 2. 在前向传播中，根据 continuous_mask 的值进行离散决策
+        # 1. Map full_mask to the [-1, 1] interval through tanh, which is a differentiable operation
+        continuous_mask = torch.tanh(full_mask)  # maintain gradient flow
+        # 2. In forward propagation, discrete decisions are made based on the value of continuous_mask
         with torch.no_grad():
-            # 创建与 continuous_mask 同形状的矩阵，存放离散决策
-            discrete_decision = torch.where(continuous_mask > 0.5,  # 条件1：大于0.5
-                                            torch.ones_like(continuous_mask),  # 满足条件1：置1（添加边）
-                                            torch.where(continuous_mask < -0.5,  # 条件2：小于-0.5
-                                                        -torch.ones_like(continuous_mask),  # 满足条件2：置-1（删除边）
-                                                        torch.zeros_like(continuous_mask)))  # 否则：置0（不变）
-            # 根据离散决策生成扰动后的邻接矩阵
+            # Create a matrix with the same shape as continuous_mask to store discrete decisions
+            discrete_decision = torch.where(continuous_mask > 0.5,  # Condition 1: greater than 0.5
+                                            torch.ones_like(continuous_mask),  # Condition 1 is met: set to 1 (add edge)
+                                            torch.where(continuous_mask < -0.5,  # Condition 2: less than -0.5
+                                                        -torch.ones_like(continuous_mask),  # Meet condition 2: Set -1 (delete edge)
+                                                        torch.zeros_like(continuous_mask)))  # Otherwise: set to 0 (unchanged)
+            # Generating perturbed adjacency matrices based on discrete decisions
             perturbed_adj_discrete = torch.where(discrete_decision > 0.5,
                                                  torch.ones_like(adj),
                                                  torch.where(discrete_decision < -0.5,
                                                              torch.zeros_like(adj),
                                                              adj))
 
-        # 3. 关键步骤：使用直通估计器连接前向离散决策和反向连续梯度
+        # 3. Key step: Use a straight-through estimator to connect forward discrete decisions and backward continuous gradients
         perturbed_adj = perturbed_adj_discrete + (continuous_mask - continuous_mask.detach())
 
         return perturbed_adj
@@ -289,9 +289,9 @@ class GNNPerturb(nn.Module):
         super().__init__()
 
         self.gcn_layer = gcn_layer
-        self.lambda_pred = lambda_pred  # 预测损失权重
-        self.lambda_dist = lambda_dist  # 稀疏损失权重
-        self.lambda_plau = lambda_plau  # 现实性损失权重
+        self.lambda_pred = lambda_pred  # Predicted loss weight
+        self.lambda_dist = lambda_dist  # Sparse loss weight
+        self.lambda_plau = lambda_plau  # Reality Loss Weight
         self.dropout = dropout
         self.extended_sub_adj = extended_sub_adj
         self.sub_feat = sub_feat
@@ -308,12 +308,12 @@ class GNNPerturb(nn.Module):
         self.heads = heads
         self.C = C
 
-        # 扰动层
+        # Disturbance layer
         print(f"Input extended_sub_adj.requires_grad: {extended_sub_adj.requires_grad}")
         self.perturb_layer = SignedMaskPerturbation(extended_sub_adj, node_idx, node_num_l_hop, top_k, C, tau_plus,
                                                     tau_minus, test_model, dataset_name)
 
-        # GCN层定义
+        # GCN layer definition
         if self.model_name == "GCN":
             if self.gcn_layer == 3:
                 self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
@@ -347,7 +347,7 @@ class GNNPerturb(nn.Module):
                 self.layers.append(GATConv(nhid * heads, nclass, heads=1, dropout=dropout, edge_dim=1))
 
     def forward(self, x: torch.Tensor, sub_adj: torch.Tensor) -> torch.Tensor:
-        """训练模式：使用连续扰动矩阵"""
+        """Training mode: Use continuous perturbation matrix"""
         self.sub_adj = sub_adj
         self.full_mask = self.perturb_layer.train_forward()
 
@@ -359,22 +359,22 @@ class GNNPerturb(nn.Module):
         perturbed_adj = self.perturb_layer.ste_perturbed_adj(self.sub_adj, scale * self.full_mask)
         A_tilde = perturbed_adj + torch.eye(self.num_nodes)
 
-        D_tilde = get_degree_matrix(A_tilde).detach()  # Don't need gradient of this 度矩阵
+        D_tilde = get_degree_matrix(A_tilde).detach()  # Don't need gradient of this degree matrix
         # Raise to power -1/2, set all infs to 0s
         D_tilde_exp = D_tilde ** (-1 / 2)
         D_tilde_exp[torch.isinf(D_tilde_exp)] = 0
 
         # Create norm_adj = (D + I)^(-1/2) * (A + I) * (D + I) ^(-1/2)
-        norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)  # 归一化邻接矩阵
+        norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)  # Normalized adjacency matrix
 
         return self._gcn_forward(x, norm_adj)
 
     def forward_prediction(self, x: torch.Tensor) -> torch.Tensor:
-        """预测模式：使用离散扰动矩阵"""
+        """Prediction mode: Utilizing discrete perturbation matrix"""
         self.delta_A = self.perturb_layer.predict_forward()
 
         A_tilde = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A) + torch.eye(
-            self.num_nodes)  # 离散化邻接矩阵
+            self.num_nodes)  # discretized adjacency matrix
 
         D_tilde = get_degree_matrix(A_tilde)
         # Raise to power -1/2, set all infs to 0s
@@ -413,7 +413,7 @@ class GNNPerturb(nn.Module):
                 else:
                     x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
-            # 最后一层
+            # last layer
             x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
             return F.log_softmax(x, dim=1)
         elif self.model_name in ["GraphConv"]:
@@ -425,38 +425,38 @@ class GNNPerturb(nn.Module):
                 x = conv(x, edge_index, edge_weight=edge_attr)
                 x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
-            # 最后一层
+            # last layer
             x = self.layers[-1](x, edge_index, edge_weight=edge_attr)
             return F.log_softmax(x, dim=1)
 
     def get_mask_parameters(self) -> nn.Parameter:
-        """获取可训练的掩码参数"""
+        """Obtain trainable mask parameters"""
         return self.perturb_layer.M
 
     def compute_losses(self,
                        output: torch.Tensor,
                        y_pred_orig: torch.Tensor,
                        y_pred_new_actual: torch.Tensor) -> tuple:
-        """计算多目标损失函数"""
+        """Calculate the multi-objective loss function"""
 
-        # 预测损失 (鼓励翻转预测)
+        # Prediction loss (encourages flipping predictions)
         pred_loss = -F.nll_loss(
             output[self.node_idx].unsqueeze(0),
             y_pred_orig.unsqueeze(0)
         ) * (y_pred_new_actual == y_pred_orig.unsqueeze(0)).float()
         # pred_loss = F.cross_entropy(output[self.node_idx].unsqueeze(0), y_pred_orig.unsqueeze(0))
-        # # 添加鼓励预测改变的项，使用更激进的策略
+        # # Add items that encourage prediction changes, using more aggressive strategies
         # if y_pred_new_actual == y_pred_orig:
-        #     # 如果预测没有改变，增加更大的损失以鼓励改变
+        #     # If the prediction does not change, add a larger loss to encourage change
         #     pred_loss += 5.0 * pred_loss
-        # # 添加注意力一致性损失，鼓励注意力权重的稀疏性
+        # # Add attention consistency loss to encourage sparsity of attention weights
         # attention_loss = 0
         # for name, module in self.named_modules():
         #     if hasattr(module, 'att') and module.att is not None:
-        #         # 鼓励注意力权重稀疏化
+        #         # Encourage sparse attention weights
         #         attention_loss += torch.mean(torch.abs(module.att.weight))
 
-        # 稀疏损失 (L0范数)
+        # Sparse loss (L0 norm)
         # cf_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
         # cf_adj.requires_grad = True  # Need to change this otherwise loss_graph_dist has no gradient
         # # dist_loss = sum(sum(abs(cf_adj - self.extended_sub_adj))) / 2
@@ -477,29 +477,29 @@ class GNNPerturb(nn.Module):
             num_deletions = del_mask.sum() / 2
             dist_loss = self.C * num_additions + 1.0 * num_deletions
 
-            # 现实性损失
+            # loss of reality
         if self.lambda_plau == 0:
             plau_loss = torch.tensor(0.0)
         else:
             plau_loss = self.compute_plausibility_loss()
 
-        # 加权总损失
+        # weighted total loss
         total_loss = self.lambda_pred * pred_loss + self.lambda_dist * dist_loss + self.lambda_plau * plau_loss
 
         return total_loss, pred_loss, dist_loss, plau_loss, cf_adj, self.delta_A, self.perturb_layer, self.full_mask
 
     def compute_plausibility_loss(self) -> torch.Tensor:
-        """计算现实性损失"""
+        """Calculate the loss of reality"""
         loss_components = torch.tensor(0.0)
         loss_components_1 = torch.tensor(0.0)
         loss_components_2 = torch.tensor(0.0)
         loss_components_3 = torch.tensor(0.0)
         loss_components_4 = torch.tensor(0.0)
 
-        # 1. 特征相似度惩罚 (仅对添加边)
+        # 1. Feature similarity penalty (only for added edges)
         # add_mask = (self.delta_A > 0.5)
         # if add_mask.sum() > 0:
-        #     # 计算特征相似度
+        #     # Calculate feature similarity
         #     target_feat = self.sub_feat[self.node_idx]
         #     for i in range(self.extended_sub_adj.size(0)):
         #         if add_mask[self.node_idx, i]:
@@ -507,7 +507,7 @@ class GNNPerturb(nn.Module):
         #             loss_components_1 = loss_components_1 + (1 - feat_sim) * self.α1
         #     loss_components_1 = loss_components_1 / add_mask.sum()
 
-        # 2. 度分布惩罚
+        # 2. Degree distribution penalty
         orig_sub_adj = self.extended_sub_adj
         # edited_sub_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
         # deg_diff = compute_deg_diff(orig_sub_adj, edited_sub_adj)
@@ -532,10 +532,10 @@ class GNNPerturb(nn.Module):
         #     for i in range(self.extended_sub_adj.size(0)):
         #         if add_mask[self.node_idx, i]:
         #             year_i = publish_year[i]
-        #             # 如果节点i的年份早于目标节点，但存在从i到j的边，则违反规则
+        #             # If the year of node i is earlier than the target node, but there is an edge from i to j, the rule is violated
         #             if (year_i < target_year) and self.extended_sub_adj[i, self.node_idx]:
         #                 violation_count += 1
-        #             # 同样检查相反情况
+        #             # Also check for the opposite case
         #             elif (target_year < year_i) and self.extended_sub_adj[self.node_idx, i]:
         #                 violation_count += 1
         #     sem_cost = violation_count / add_mask.sum()

@@ -132,7 +132,7 @@ class OrbitAttack(BaseAttack):
         self.adj_norm = utils.normalize_adj(self.modified_adj)
         self.W = self.get_linearized_weight()
 
-        logits = (self.adj_norm @ self.adj_norm @ self.modified_features @ self.W )[target_node]  # 是一个典型的图卷积网络（GCN）前向传播计算过程，结合了邻接矩阵归一化、特征传播和参数化权重矩阵的线性变换
+        logits = (self.adj_norm @ self.adj_norm @ self.modified_features @ self.W )[target_node]  # It is a typical graph convolution network (GCN) forward propagation calculation process, which combines adjacency matrix normalization, feature propagation and linear transformation of parameterized weight matrices.
 
         self.label_u = labels[target_node]
         label_target_onehot = np.eye(int(self.nclass))[labels[target_node]]
@@ -229,7 +229,7 @@ class OrbitAttack(BaseAttack):
         self.adj_norm = utils.normalize_adj(self.modified_adj)
         self.W = self.get_linearized_weight()
 
-        logits = (self.adj_norm @ self.adj_norm @ self.modified_features @ self.W )[target_node]  # 是一个典型的图卷积网络（GCN）前向传播计算过程，结合了邻接矩阵归一化、特征传播和参数化权重矩阵的线性变换
+        logits = (self.adj_norm @ self.adj_norm @ self.modified_features @ self.W )[target_node]  # It is a typical graph convolution network (GCN) forward propagation calculation process, which combines adjacency matrix normalization, feature propagation and linear transformation of parameterized weight matrices.
 
         self.label_u = labels[target_node]
         label_target_onehot = np.eye(int(self.nclass))[labels[target_node]]
@@ -330,7 +330,7 @@ class OrbitAttack(BaseAttack):
         self.adj_norm = utils.normalize_adj(self.modified_adj)
         self.W = self.get_linearized_weight()
 
-        logits = (self.adj_norm @ self.adj_norm @ self.modified_features @ self.W )[target_node]  # 是一个典型的图卷积网络（GCN）前向传播计算过程，结合了邻接矩阵归一化、特征传播和参数化权重矩阵的线性变换
+        logits = (self.adj_norm @ self.adj_norm @ self.modified_features @ self.W )[target_node]  # It is a typical graph convolution network (GCN) forward propagation calculation process, which combines adjacency matrix normalization, feature propagation and linear transformation of parameterized weight matrices.
 
         self.label_u = labels[target_node]
         label_target_onehot = np.eye(int(self.nclass))[labels[target_node]]
@@ -430,7 +430,7 @@ class OrbitAttack(BaseAttack):
         self.adj_norm = utils.normalize_adj(self.modified_adj)
         self.W = self.get_linearized_weight()
 
-        logits = (self.adj_norm @ self.adj_norm @ self.modified_features @ self.W )[target_node]  # 是一个典型的图卷积网络（GCN）前向传播计算过程，结合了邻接矩阵归一化、特征传播和参数化权重矩阵的线性变换
+        logits = (self.adj_norm @ self.adj_norm @ self.modified_features @ self.W )[target_node]  # It is a typical graph convolution network (GCN) forward propagation calculation process, which combines adjacency matrix normalization, feature propagation and linear transformation of parameterized weight matrices.
 
         self.label_u = labels[target_node]
         label_target_onehot = np.eye(int(self.nclass))[labels[target_node]]

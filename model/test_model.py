@@ -29,7 +29,7 @@ from model.GCN import GCN_model
 class PyGCompatibleGCN(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels):
         super().__init__()
-        self.conv1 = GCNConv(in_channels, hidden_channels, bias=True)  # 强制启用偏置
+        self.conv1 = GCNConv(in_channels, hidden_channels, bias=True)  # Force bias enabled
         self.conv2 = GCNConv(hidden_channels, out_channels, bias=True)
 
     def forward(self, x, edge_index):
@@ -41,20 +41,20 @@ class PyGCompatibleGCN(torch.nn.Module):
 
 def transfer_weights(dr_model, pyg_model):
     print("PyG模型结构验证:")
-    print(f"conv1.lin存在: {hasattr(pyg_model.conv1, 'lin')}")  # 应为True
+    print(f"conv1.lin存在: {hasattr(pyg_model.conv1, 'lin')}")  # Should be True
     print(f"conv1.lin.weight形状: {pyg_model.conv1.lin.weight.shape}")
     print(f"DeepRobust gc1.weight形状: {dr_model.gc1.weight.shape}")
-    """ 处理权重矩阵转置 + 偏置安全迁移 """
-    # 第一层权重转置 (1433,16) -> (16,1433)
+    """ Handling the transposition of the weight matrix + bias safe migration """
+    # First layer weight transposition (1433,16) -> (16,1433)
     pyg_model.conv1.lin.weight.data = dr_model.gc1.weight.data.t().clone()
 
-    # 安全处理偏置
+    # Safe handling of bias
     if hasattr(pyg_model.conv1.lin, 'bias') and pyg_model.conv1.lin.bias is not None:
         pyg_model.conv1.lin.bias.data.zero_()
         if hasattr(dr_model.gc1, 'bias') and dr_model.gc1.bias is not None:
             pyg_model.conv1.lin.bias.data.copy_(dr_model.gc1.bias.data)
 
-    # 第二层权重转置 (16,7) -> (7,16)
+    # Second layer weight transposition (16,7) -> (7,16)
     pyg_model.conv2.lin.weight.data = dr_model.gc2.weight.data.t().clone()
 
     if hasattr(pyg_model.conv2.lin, 'bias') and pyg_model.conv2.lin.bias is not None:
@@ -71,7 +71,7 @@ def adj_to_edge_index(adj):
     :return:
     """
     coo_adj = sp.coo_matrix(adj)
-    # 使用np.vstack提高效率
+    # Use np.vstack to improve efficiency
     edge_array = np.vstack([coo_adj.row, coo_adj.col])
     return torch.tensor(edge_array, dtype=torch.long)
 
@@ -103,9 +103,9 @@ if __name__ == '__main__':
     adj, features, labels = data_robust.adj, data_robust.features, data_robust.labels
     idx_train, idx_val, idx_test = data_robust.idx_train, data_robust.idx_val, data_robust.idx_test
 
-    # 初始化PyG模型
-    print(f"特征矩阵类型: {type(features)}")  # 应为scipy.sparse.csr.csr_matrix
-    print(f"邻接矩阵类型: {type(adj)}")  # 应为scipy.sparse.csr.csr_matrix
+    # Initialize PyG model
+    print(f"特征矩阵类型: {type(features)}")  # Should be scipy.sparse.csr.csr_matrix
+    print(f"邻接矩阵类型: {type(adj)}")  # Should be scipy.sparse.csr.csr_matrix
     pyg_gcn = PyGCompatibleGCN(
         in_channels=features.shape[1],
         hidden_channels=16,
@@ -113,11 +113,11 @@ if __name__ == '__main__':
     )
     pyg_gcn = pyg_gcn.to(device)
 
-    # 迁移参数
+    # Migration parameters
     dr_trained_model, output = GCN_model(adj, features, labels, device, idx_train, idx_val)
     pyg_model = transfer_weights(dr_trained_model, pyg_gcn)
 
-    # 创建PyG Data对象
+    # Create a PyG Data object
     edge_index = adj_to_edge_index(adj)
     features_dense = features.toarray() if issparse(features) else features
     pyg_data = Data(
@@ -126,9 +126,9 @@ if __name__ == '__main__':
         y=torch.tensor(labels)
     )
 
-    # 预测一致性检查
+    # Prediction consistency check
     # dr_pred = dr_trained_model.predict(features, adj)
-    dr_logits = torch.tensor(output, device=device)  # 确保同设备
+    dr_logits = torch.tensor(output, device=device)  # Make sure the same device
     dr_pred = dr_logits.argmax(dim=1)
 
     pyg_logits = pyg_gcn(pyg_data.x, pyg_data.edge_index)
@@ -141,10 +141,10 @@ if __name__ == '__main__':
     explainer = Explainer(
         model=pyg_gcn,
         algorithm=GNNExplainer(
-            epochs=100,  # 减少训练轮次
-            lr=0.1,  # 提高学习率
-            log=False,  # 禁用日志
-            coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # 添加正则化防止梯度爆炸
+            epochs=100,  # Reduce training rounds
+            lr=0.1,  # Increase learning rate
+            log=False,  # Disable logging
+            coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # Add regularization to prevent exploding gradients
         ),
         explanation_type='model',
         node_mask_type='attributes',
@@ -163,30 +163,30 @@ if __name__ == '__main__':
         node_idx=target_node,
         num_hops=3,
         edge_index=pyg_data.edge_index,
-        relabel_nodes=False,  # 关键：禁用节点重编号
+        relabel_nodes=False,  # Key: Disable node renumbering
         num_nodes=pyg_data.num_nodes
     )
 
-    # 创建映射字典（原始节点ID → 子图索引）
+    # Create mapping dictionary (original node ID → subgraph index)
     id_mapping = {idx: int(orig_id) for idx, orig_id in enumerate(subset.tolist())}
     reverse_mapping = {int(node_id): idx for idx, node_id in enumerate(subset.tolist())}
 
-    # 创建子图特征
+    # Create subgraph features
     x_sub = pyg_data.x[subset]
 
-    # 目标节点在子图中的位置
+    # The position of the target node in the subgraph
     target_idx_in_subgraph = reverse_mapping[target_node]
 
-    # 创建映射后的边索引（原始ID → 子图索引）
+    # Create mapped edge index (original ID → subgraph index)
     edge_index_sub_mapped = torch.zeros_like(edge_index_sub)
     for i in range(edge_index_sub.size(1)):
         edge_index_sub_mapped[0, i] = reverse_mapping[edge_index_sub[0, i].item()]
         edge_index_sub_mapped[1, i] = reverse_mapping[edge_index_sub[1, i].item()]
 
-    # 手动添加自环（解决GCNConv归一化问题）
+    # Manually add self-loop (solve GCNConv normalization problem)
     edge_index_sub_mapped, _ = add_self_loops(edge_index_sub_mapped, num_nodes=len(subset))
 
-    # 执行解释
+    # Execution explanation
     explanation = explainer(
         x=x_sub,
         edge_index=edge_index_sub_mapped,
@@ -203,12 +203,12 @@ if __name__ == '__main__':
     edge_mask = explanation.edge_mask
     node_mask = explanation.node_mask
 
-    # 打印原始节点ID
+    # Print original node ID
     print("子图节点ID与原始ID映射关系:")
     for sub_id, orig_id in id_mapping.items():
         print(f"子图ID {sub_id} -> 原始ID {orig_id}")
 
-    # 验证目标节点ID保持不变
+    # Verify that the target node ID remains the same
     print(f"目标节点在子图中的ID: {target_idx_in_subgraph} (对应原始ID {target_node})")
 
     elapsed = time.time() - start_time

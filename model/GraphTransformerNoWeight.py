@@ -24,18 +24,18 @@ class GraphTransformer(nn.Module):
         self.num_layers = num_layers
         self.dropout = dropout
 
-        # 第一层
+        # first floor
         self.layers.append(TransformerConv(in_channels, hidden_channels, heads=heads, dropout=dropout, edge_dim=None))
 
-        # 中间层
+        # middle layer
         for _ in range(num_layers - 2):
             self.layers.append(
                 TransformerConv(hidden_channels * heads, hidden_channels, heads=heads, dropout=dropout, edge_dim=None))
 
-        # 最后一层
+        # last layer
         self.layers.append(TransformerConv(hidden_channels * heads, out_channels, heads=1, dropout=dropout, edge_dim=None))
 
-        # 设备选择
+        # Equipment selection
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
@@ -43,7 +43,7 @@ class GraphTransformer(nn.Module):
 
         self.to(self.device)
 
-        # 优化器
+        # optimizer
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
 
     def forward(self, x, edge_index, edge_weight=None, **kwargs):
@@ -51,14 +51,14 @@ class GraphTransformer(nn.Module):
             x = conv(x, edge_index)
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
-        # 最后一层
+        # last layer
         x = self.layers[-1](x, edge_index)
         return F.log_softmax(x, dim=1)
 
     def train_step(self, data):
         """single step training"""
         self.train()
-        # data = data.to(self.device)  # 把数据送到 GPU/CPU
+        # data = data.to(self.device) # Send data to GPU/CPU
         self.optimizer.zero_grad()
         dense_adj = torch.tensor(data.adj.toarray())
         edge_index, _ = dense_to_sparse(dense_adj)
@@ -73,7 +73,7 @@ class GraphTransformer(nn.Module):
     def test_step(self, data):
         """test，return (train_acc, val_acc, test_acc)"""
         self.eval()
-        # data = data.to(self.device)  # 数据也要放到对应 device
+        # data = data.to(self.device) #The data should also be placed in the corresponding device
         dense_adj = torch.tensor(data.adj.toarray())
         edge_index, _ = dense_to_sparse(dense_adj)
         features = torch.tensor(data.features.toarray())
@@ -92,20 +92,20 @@ class GraphTransformer(nn.Module):
     def fit(self, data, train_iters=500):
         best_val_acc = 0.0
         best_model_state = None
-        # 训练循环
+        # training loop
         for epoch in range(train_iters):
             loss = self.train_step(data)
             train_acc, val_acc, test_acc = self.test_step(data)
-            # 每10轮验证一次
+            # Verified every 10 rounds
             if epoch % 10 == 0:
-                # 更新最佳模型
+                # Update best model
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
                     best_model_state = self.state_dict().copy()
                 print(f"Epoch {epoch:03d} | Loss {loss:.4f} | "
                       f"Train {train_acc:.4f} | Val {val_acc:.4f} | Test {test_acc:.4f}")
 
-        # 加载最佳模型状态
+        # Load the best model state
         if best_model_state:
             self.load_state_dict(best_model_state)
             print(f"Loaded best model with Val Acc {best_val_acc:.4f}")

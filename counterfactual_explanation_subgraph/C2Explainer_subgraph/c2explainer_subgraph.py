@@ -45,7 +45,7 @@ def analyze_edge_changes(original_edges, cf_edges, target_node):
     """
     分析边的具体变化：添加了哪些边，删除了哪些边
     """
-    # 将边转换为集合以便比较（考虑无向图）
+    # Convert edges to sets for comparison (consider undirected graph)
     original_set = set()
     for i in range(original_edges.shape[1]):
         u, v = original_edges[0, i].item(), original_edges[1, i].item()
@@ -56,11 +56,11 @@ def analyze_edge_changes(original_edges, cf_edges, target_node):
         u, v = cf_edges[0, i].item(), cf_edges[1, i].item()
         cf_set.add((min(u, v), max(u, v)))
 
-    # 找出添加和删除的边
+    # Find added and removed edges
     added_edges = cf_set - original_set
     removed_edges = original_set - cf_set
 
-    # 筛选与目标节点相关的边变化
+    # Filter edge changes related to target node
     target_added = [edge for edge in added_edges if target_node in edge]
     target_removed = [edge for edge in removed_edges if target_node in edge]
 

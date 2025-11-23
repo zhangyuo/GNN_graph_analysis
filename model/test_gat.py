@@ -11,16 +11,16 @@ from torch_geometric.utils import dense_to_sparse
 from utilty.utils import normalize_adj
 
 # =======================
-# 1. 加载 BA-Shapes 数据集
+# 1. Load BA-Shapes data set
 # =======================
 dataset = BAShapes()
 data = dataset[0]
 
-# 使用 one-hot 作为节点特征
+# Use one-hot as node features
 num_features = dataset.num_classes
 data.x = F.one_hot(data.y).float()
 
-# 随机划分训练/验证/测试
+# Randomly divide training/validation/testing
 transform = RandomNodeSplit(split="train_rest", num_val=140, num_test=200)
 data = transform(data)
 
@@ -29,7 +29,7 @@ print(f"Train/Val/Test nodes: {data.train_mask.sum()}/{data.val_mask.sum()}/{dat
 
 
 # =======================
-# 2. 定义 GAT 模型
+# 2. Define the GAT model
 # =======================
 class GAT(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, heads=8, dropout=0.2):
@@ -60,7 +60,7 @@ def edge_index_to_adj(edge_index, num_nodes):
 
 
 # =======================
-# 3. 设置超参数
+# 3. Set hyperparameters
 # =======================
 in_channels = num_features
 hidden_channels = 64
@@ -71,7 +71,7 @@ weight_decay = 5e-4
 epochs = 500
 
 # =======================
-# 4. 初始化模型和优化器
+# 4. Initialize model and optimizer
 # =======================
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = GAT(in_channels, hidden_channels, out_channels, heads=heads).to(device)
@@ -81,7 +81,7 @@ criterion = torch.nn.CrossEntropyLoss()
 
 
 # =======================
-# 5. 训练函数
+# 5. Training function
 # =======================
 def train():
     model.train()
@@ -98,7 +98,7 @@ def train():
 
 
 # =======================
-# 6. 测试函数
+# 6. Test function
 # =======================
 def test():
     model.eval()
@@ -112,7 +112,7 @@ def test():
 
 
 # =======================
-# 7. 训练循环
+# 7. Training loop
 # =======================
 best_val_acc = 0
 best_test_acc = 0

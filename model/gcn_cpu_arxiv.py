@@ -48,14 +48,14 @@ from tqdm import tqdm
 # -----------------------
 DEFAULTS = {
     "dataset_name": "ogbn-arxiv",
-    "hidden": 64,  # 更小的隐藏层：CPU 友好
+    "hidden": 64,  # Smaller hidden layers: CPU friendly
     "dropout": 0.5,
-    "num_neighbors": [5, 5],  # 两层采样各采 5 个邻居
-    "batch_size": 128,  # 可根据内存降低到 512/256/128
-    "num_workers": None,  # None: 自动选择 (脚本内会回退到 0)
+    "num_neighbors": [5, 5],  # Two layers of sampling each sample 5 neighbors.
+    "batch_size": 128,  # Can be reduced to 512/256/128 depending on memory
+    "num_workers": None,  # None: Automatic selection (will fall back to 0 in the script)
     "lr": 0.01,
     "weight_decay": 5e-4,
-    "epochs": 1,  # CPU 上先少跑几轮试试 5/2/1
+    "epochs": 1,  # Try running a few less rounds on the CPU 5/2/1
     "seed": 42,
     "cf_epochs": 200,
     "cf_lr": 0.1,
@@ -72,7 +72,7 @@ DEFAULTS = {
 def set_seed(seed: int):
     random.seed(seed)
     torch.manual_seed(seed)
-    # torch.use_deterministic_algorithms(True)  # 可选：提高可重复性但可能更慢
+    # torch.use_deterministic_algorithms(True) # Optional: improves reproducibility but may be slower
 
 
 def get_num_workers(preferred: int = None) -> int:

@@ -203,7 +203,7 @@ if __name__ == '__main__':
         with open(counterfactual_explanation_subgraph_path + "/explainer.pickle", "rb") as fr:
             explainer = pickle.load(fr)
     except:
-        # 抽取子图
+        # Extract subgraph
         if dataset_name in ['ogbn-arxiv', 'chameleon']:
             explainer = pg_explainer_generate_batch(test_model, gnn_model, device, features, labels, gcn_layer,
                                                     pyg_data, data, target_node_list, epochs=10)

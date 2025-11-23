@@ -55,7 +55,7 @@ def evaluate_test_data(gnn_model, pyg_data, gcn_layer, device="cpu"):
 
     with torch.no_grad():
         for node_id in pyg_data.idx_test.tolist():
-            # 提取 (gcn_layer+1)-hop 子图
+            # Extract (gcn_layer+1)-hop subgraph
             node_index, edge_index, mapping, _ = k_hop_subgraph(
                 node_idx=node_id,
                 num_hops=gcn_layer + 1,
@@ -64,18 +64,18 @@ def evaluate_test_data(gnn_model, pyg_data, gcn_layer, device="cpu"):
                 num_nodes=pyg_data.num_nodes
             )
 
-            # 子图特征 & 标签
+            # Subgraph features & labels
             x_sub = pyg_data.x[node_index].to(device)
             y_sub = pyg_data.y[node_index].to(device)
 
-            # 子图邻接矩阵 (dense)
+            # Subgraph adjacency matrix (dense)
             adj = to_dense_adj(edge_index, max_num_nodes=x_sub.size(0)).squeeze(0).to(device)
             norm_adj = normalize_adj(adj)
 
-            # 前向传播
+            # forward propagation
             out = gnn_model(x_sub, norm_adj)
 
-            # mapping 是原始 node_id 在子图中的位置
+            # mapping is the position of the original node_id in the subgraph
             logit = out[mapping]
             pred = logit.argmax(dim=0, keepdim=True)
 
@@ -103,7 +103,7 @@ def evaluate_val_mini_batch(model, data, batch_size=1024, num_neighbors=[10, 10]
     with torch.no_grad():
         for batch in val_loader:
             batch = batch.to(device)
-            # 构建 mini-batch 的稀疏/局部 adjacency
+            # Building sparse/local adjacency for mini-batch
             adj = to_dense_adj(batch.edge_index, max_num_nodes=batch.x.size(0)).squeeze(0).to(device)
             norm_adj = normalize_adj(adj)
             out = model(batch.x, norm_adj)
@@ -181,7 +181,7 @@ def GCN_model_batch(pyg_data, nhid, dropout, lr, weight_decay, with_bias,
         print("Test label distribution:", torch.bincount(pyg_data.y[pyg_data.idx_test]))
 
         print("Start training ...")
-        val_interval = 5  # 每隔多少个 epoch 计算一次验证集精度
+        val_interval = 5  # Calculate the validation set accuracy every epoch
         best_val_acc = 0.0
         best_model_state = None
 
@@ -195,11 +195,11 @@ def GCN_model_batch(pyg_data, nhid, dropout, lr, weight_decay, with_bias,
                 batch = batch.to(device)
                 optimizer.zero_grad()
 
-                # 构建稠密邻接矩阵 (mini-batch) + 归一化
+                # Build dense adjacency matrix (mini-batch) + normalization
                 adj = to_dense_adj(batch.edge_index, max_num_nodes=batch.x.size(0)).squeeze(0).to(device)
                 # adj.fill_diagonal_(1.0)
 
-                # 使用自定义的 normalize_adj
+                # Use custom normalize_adj
                 norm_adj = normalize_adj(adj)
 
                 out = target_gcn(batch.x, norm_adj)
@@ -212,7 +212,7 @@ def GCN_model_batch(pyg_data, nhid, dropout, lr, weight_decay, with_bias,
                 total_loss += loss.item() * batch.batch_size
                 n_samples += batch.batch_size
 
-                # 打印 batch 精度（可选）
+                # Print batch precision (optional)
                 # pred = logits.argmax(dim=1)
                 # correct = pred.eq(target).sum().item()
                 # batch_iter.set_postfix(loss=loss.item(), batch_acc=f"{correct}/{batch.batch_size}")
@@ -221,23 +221,23 @@ def GCN_model_batch(pyg_data, nhid, dropout, lr, weight_decay, with_bias,
             avg_loss = total_loss / max(1, n_samples)
             # train_acc, val_acc, test_acc = evaluate_gcn(target_gcn, pyg_data, device)
 
-            # 保存最佳模型
+            # Save the best model
             # if val_acc > best_val_acc:
             #     best_val_acc = val_acc
             #     best_model_state = target_gcn.state_dict().copy()
 
-            # 打印 epoch 级信息
+            # Print epoch level information
             # print(f"Epoch {epoch:03d} | Loss {avg_loss:.4f} | "
             #       f"Train {train_acc:.4f} | Val {val_acc:.4f} | Test {test_acc:.4f}")
             print(f"Epoch {epoch:03d} | Loss {avg_loss:.4f}")
 
-            # 每隔 val_interval 计算一次验证集精度
+            # Calculate validation set accuracy every val_interval
             if epoch % val_interval == 0:
                 val_acc = evaluate_val_mini_batch(target_gcn, pyg_data, batch_size=batch_size,
                                                   num_neighbors=num_neighbors, device=device)
                 print(f"Validation Acc (mini-batch) at epoch {epoch}: {val_acc:.4f}")
 
-                # 保存最佳模型
+                # Save the best model
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
                     best_model_state = target_gcn.state_dict().copy()
@@ -314,9 +314,9 @@ if __name__ == "__main__":
     # adj, features, labels = data.adj, data.features, data.labels
     # idx_train, idx_val, idx_test = data.idx_train, data.idx_val, data.idx_test
     #
-    # # 将 deeprobust Dataset 转为 PyG Data
+    # # Convert deeprobust Dataset to PyG Data
     # edge_index = torch.tensor(adj.nonzero(), dtype=torch.long)
-    # edge_index = edge_index[[1, 0]]  # PyG 格式 [2, num_edges]
+    # edge_index = edge_index[[1, 0]] # PyG format [2, num_edges]
     # x = torch.tensor(features.toarray(), dtype=torch.float32)
     # y = torch.tensor(labels, dtype=torch.long)
     #
@@ -328,14 +328,14 @@ if __name__ == "__main__":
     # save_path = "./model_save/GCN/ogbn-arxiv/gcn_batch.pt"
     # gnn_model = GCN_model_batch(
     #     pyg_data,
-    #     nhid=16,  # Cora 小图，隐藏层 16 就够
-    #     dropout=0.5,  # 保持不变，可尝试 0.5 或 0.3
-    #     lr=0.01,  # 学习率可保持
-    #     weight_decay=5e-4,  # 权重衰减保持
+    #     nhid=16, # Cora small picture, hidden layer 16 is enough
+    #     dropout=0.5, # Leave unchanged, try 0.5 or 0.3
+    #     lr=0.01, # The learning rate can be maintained
+    #     weight_decay=5e-4, # weight decay maintained
     #     with_bias=True,
-    #     batch_size=32,  # Cora 节点少，batch 32 即可
-    #     num_neighbors=[10, 10],  # 两层邻居采样多一点，提高信息覆盖
-    #     epochs=200,  # 小图训练轮数多一些，200~300 较常用
+    #     batch_size=32, # Cora has few nodes, so batch 32 is enough
+    #     num_neighbors=[10, 10], # Two-layer neighbor sampling is more to improve information coverage
+    #     epochs=200, # The number of small training rounds is more, 200~300 is more commonly used
     #     device=device,
     #     gcn_layer=2,
     #     save_path=save_path

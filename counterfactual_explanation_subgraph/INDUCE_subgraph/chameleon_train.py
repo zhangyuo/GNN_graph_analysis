@@ -106,7 +106,7 @@ class GCN_extend(GCN):
             self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
             self.gc2 = GraphConvolution(nhid, nhid, with_bias=with_bias)
             self.gc3 = GraphConvolution(nhid, nclass, with_bias=with_bias)
-            self.lin = nn.Linear(nhid + nhid + nclass, nclass, bias=with_bias)  # 拼接多层输出
+            self.lin = nn.Linear(nhid + nhid + nclass, nclass, bias=with_bias)  # Splicing multi-layer output
         else:
             self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
             self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
@@ -115,18 +115,18 @@ class GCN_extend(GCN):
 
     def forward(self, x, adj):
         if self.gcn_layer == 3:
-            x1 = F.relu(self.gc1(x, adj))  # 第一层卷积+激活
+            x1 = F.relu(self.gc1(x, adj))  # First layer convolution + activation
             x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = F.relu(self.gc2(x1, adj))  # 第二层卷积+激活
+            x2 = F.relu(self.gc2(x1, adj))  # Second layer convolution + activation
             x2 = F.dropout(x2, self.dropout, training=self.training)
-            x3 = self.gc3(x2, adj)  # 第三层无激活
-            x = self.lin(torch.cat((x1, x2, x3), dim=1))  # 特征拼接
-            return F.log_softmax(x, dim=1)  # 分类输出，输出层使用log_softmax适配NLLLoss
+            x3 = self.gc3(x2, adj)  # The third layer is not activated
+            x = self.lin(torch.cat((x1, x2, x3), dim=1))  # Feature splicing
+            return F.log_softmax(x, dim=1)  # Classification output, the output layer uses log_softmax to adapt NLLLoss
         else:
-            x1 = F.relu(self.gc1(x, adj))  # 第一层卷积+激活
+            x1 = F.relu(self.gc1(x, adj))  # First layer convolution + activation
             x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = self.gc2(x1, adj)  # 第二层卷积
-            return F.log_softmax(x2, dim=1)  # 分类输出，输出层使用log_softmax适配NLLLoss
+            x2 = self.gc2(x1, adj)  # Second layer convolution
+            return F.log_softmax(x2, dim=1)  # Classification output, the output layer uses log_softmax to adapt NLLLoss
 
     def loss(self, pred, label):
         return F.nll_loss(pred, label)
@@ -140,27 +140,27 @@ def log_results(cf_dict):
 
 def transfer_weights(dr_model, pyg_model, gcn_layer):
     print("PyG模型结构验证:")
-    print(f"conv1.lin存在: {hasattr(pyg_model.conv1, 'lin')}")  # 应为True
+    print(f"conv1.lin存在: {hasattr(pyg_model.conv1, 'lin')}")  # Should be True
     print(f"conv1.lin.weight形状: {pyg_model.conv1.lin.weight.shape}")
     print(f"DeepRobust gc1.weight形状: {dr_model.gc1.weight.shape}")
 
-    # 第一层权重转置 (1433,16) -> (16,1433)
+    # First layer weight transposition (1433,16) -> (16,1433)
     pyg_model.conv1.lin.weight.data = dr_model.gc1.weight.data.t().clone()
     # pyg_model.conv1.lin.weight.data.copy_(dr_model.gc1.weight.data)
     pyg_model.conv1.bias.data.copy_(dr_model.gc1.bias.data)
 
-    # 第二层权重转置 (16,16) -> (16,16)
+    # Second layer weight transposition (16,16) -> (16,16)
     pyg_model.conv2.lin.weight.data = dr_model.gc2.weight.data.t().clone()
     # pyg_model.conv2.lin.weight.data.copy_(dr_model.gc2.weight.data)
     pyg_model.conv2.bias.data.copy_(dr_model.gc2.bias.data)
 
     if gcn_layer == 3:
-        # 第三层权重转置 (16,7) -> (7,16)
+        # The third layer weight transposition (16,7) -> (7,16)
         pyg_model.conv3.lin.weight.data = dr_model.gc3.weight.data.t().clone()
         # pyg_model.conv2.lin.weight.data.copy_(dr_model.gc2.weight.data)
         pyg_model.conv3.bias.data.copy_(dr_model.gc3.bias.data)
 
-        # 线性拼接层权重转换
+        # Linear splicing layer weight conversion
         pyg_model.lin.weight.data.copy_(dr_model.lin.weight.data)
         pyg_model.lin.bias.data.copy_(dr_model.lin.bias.data)
     else:

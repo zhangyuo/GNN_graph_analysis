@@ -25,17 +25,17 @@ class DenseGATNet(nn.Module):
         self.num_layers = num_layers
         self.dropout = dropout
 
-        # 第一层
+        # first floor
         self.layers.append(DenseGATConv(in_channels, hidden_channels, heads=heads, dropout=dropout))
 
-        # 中间层
+        # middle layer
         for _ in range(num_layers - 2):
             self.layers.append(DenseGATConv(hidden_channels * heads, hidden_channels, heads=heads, dropout=dropout))
 
-        # 最后一层
+        # last layer
         self.layers.append(DenseGATConv(hidden_channels * heads, out_channels, heads=1, dropout=dropout))
 
-        # 设备
+        # equipment
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
@@ -43,7 +43,7 @@ class DenseGATNet(nn.Module):
 
         self.to(self.device)
 
-        # 优化器
+        # optimizer
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
 
     def forward(self, x, adj):
@@ -51,7 +51,7 @@ class DenseGATNet(nn.Module):
             x = conv(x, adj)
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
-        # 最后一层
+        # last layer
         x = self.layers[-1](x, adj)[0]
         return F.log_softmax(x, dim=1)
 
@@ -61,7 +61,7 @@ class DenseGATNet(nn.Module):
         self.optimizer.zero_grad()
 
         dense_adj = torch.tensor(data.adj.toarray(), dtype=torch.float32, device=self.device)
-        norm_adj = normalize_adj(dense_adj)  # 保持和稀疏版一致
+        norm_adj = normalize_adj(dense_adj)  # Keep consistent with the sparse version
         features = torch.tensor(data.features.toarray(), dtype=torch.float32, device=self.device)
         labels = torch.tensor(data.labels, dtype=torch.long, device=self.device)
 

@@ -65,7 +65,7 @@ def explanation_resricted_subgraph_visualization(
     edge_index = explanation.edge_index[:, edge_mask > min_edge_value].cpu().numpy()
 
     # ====================== 2. Extract Key Nodes Based on Edge Importance ======================
-    # 构建邻接表（高效存储节点连接关系）
+    # Build an adjacency list (efficient storage of node connection relationships)
     adj = defaultdict(list)
     for i in range(edge_index.shape[1]):
         u, v = map(int, edge_index[:, i])
@@ -73,27 +73,27 @@ def explanation_resricted_subgraph_visualization(
         adj[u].append((v, imp, i))
         adj[v].append((u, imp, i))
 
-    # 初始化数据结构
+    # Initialize data structure
     if full_mapping:
         target_node = full_mapping[target_node]
-    connected_nodes = {target_node}  # 必须包含目标节点
+    connected_nodes = {target_node}  # Must contain target node
     selected_edges = set()
-    heap = []  # 最大堆存储 (-imp, u, v, edge_idx)
+    heap = []  # Maximum heap storage (-imp, u, v, edge_idx)
 
-    # 初始化：将目标节点的邻边加入优先队列[5,9](@ref)
+    # Initialization: Add the adjacent edges of the target node to the priority queue [5,9](@ref)
     for neighbor, imp, idx in adj[target_node]:
         heapq.heappush(heap, (-imp, target_node, neighbor, idx))
 
-    # 优先队列扩展连通子图
+    # Priority queue extended connected subgraph
     while heap and len(connected_nodes) < max_nodes:
         neg_imp, u, v, idx = heapq.heappop(heap)
         imp = -neg_imp
 
-        # 跳过已处理的边
+        # Skip processed edges
         if idx in selected_edges:
             continue
 
-        # 记录新节点（如果未超限）
+        # Log new nodes (if not exceeded)
         new_node = None
         if v not in connected_nodes:
             if len(connected_nodes) >= max_nodes:
@@ -101,18 +101,18 @@ def explanation_resricted_subgraph_visualization(
             connected_nodes.add(v)
             new_node = v
 
-        # 添加当前边（无论是否添加新节点）
+        # Add the current edge (regardless of whether to add a new node)
         selected_edges.add(idx)
 
-        # 将新节点的邻边加入优先队列
+        # Add the adjacent edges of the new node to the priority queue
         if new_node is not None:
             for neighbor, new_imp, new_idx in adj[new_node]:
-                # 避免重复添加已处理边
+                # Avoid adding processed edges repeatedly
                 if new_idx not in selected_edges:
                     heapq.heappush(heap, (-new_imp, new_node, neighbor, new_idx))
 
     # ====================== 3. Prune Edges ======================
-    # 提取最终节点和边
+    # Extract final nodes and edges
     unique_nodes = np.array(list(connected_nodes))
     selected_edges = list(selected_edges)
 
@@ -154,7 +154,7 @@ def explanation_resricted_subgraph_visualization(
             importance = pruned_edge_importance[i]
             subgraph.add_edge(u, v, weight=importance, label=f"{importance:.2f}")
 
-    # 连通性检查（强制包含目标节点）
+    # Connectivity check (forces inclusion of target node)
     if not nx.is_connected(subgraph):
         largest_cc = max(nx.connected_components(subgraph), key=len)
         if target_node not in largest_cc:
@@ -407,7 +407,7 @@ def explanation_subgraph_visualization(
     edge_index = explanation.edge_index[:, edge_mask > threshold].cpu().numpy()
 
     # ====================== 2. Extract Key Nodes Based on Edge Importance ======================
-    # 构建邻接表（高效存储节点连接关系）
+    # Build an adjacency list (efficient storage of node connection relationships)
     adj = defaultdict(list)
     for i in range(edge_index.shape[1]):
         u, v = map(int, edge_index[:, i])
@@ -415,27 +415,27 @@ def explanation_subgraph_visualization(
         adj[u].append((v, imp, i))
         adj[v].append((u, imp, i))
 
-    # 初始化数据结构
+    # Initialize data structure
     if full_mapping:
         target_node = full_mapping[target_node]
-    connected_nodes = {target_node}  # 必须包含目标节点
+    connected_nodes = {target_node}  # Must contain target node
     selected_edges = set()
-    heap = []  # 最大堆存储 (-imp, u, v, edge_idx)
+    heap = []  # Maximum heap storage (-imp, u, v, edge_idx)
 
-    # 初始化：将目标节点的邻边加入优先队列
+    # Initialization: Add the adjacent edges of the target node to the priority queue
     for neighbor, imp, idx in adj[target_node]:
         heapq.heappush(heap, (-imp, target_node, neighbor, idx))
 
-    # 优先队列扩展连通子图
+    # Priority queue extended connected subgraph
     while heap and len(selected_edges) < attack_subgraph_edge_num:
         neg_imp, u, v, idx = heapq.heappop(heap)
         imp = -neg_imp
 
-        # 跳过已处理的边
+        # Skip processed edges
         if idx in selected_edges:
             continue
 
-        # 记录新节点（如果未超限）
+        # Log new nodes (if not exceeded)
         new_node = None
         if v not in connected_nodes:
             if len(selected_edges) >= attack_subgraph_edge_num:
@@ -443,18 +443,18 @@ def explanation_subgraph_visualization(
             connected_nodes.add(v)
             new_node = v
 
-        # 添加当前边（无论是否添加新节点）
+        # Add the current edge (regardless of whether to add a new node)
         selected_edges.add(idx)
 
-        # 将新节点的邻边加入优先队列
+        # Add the adjacent edges of the new node to the priority queue
         if new_node is not None:
             for neighbor, new_imp, new_idx in adj[new_node]:
-                # 避免重复添加已处理边
+                # Avoid adding processed edges repeatedly
                 if new_idx not in selected_edges:
                     heapq.heappush(heap, (-new_imp, new_node, neighbor, new_idx))
 
     # ====================== 3. Prune Edges ======================
-    # 提取最终节点和边
+    # Extract final nodes and edges
     selected_edges = list(selected_edges)
     pruned_edge_index = edge_index[:, selected_edges]
     pruned_edge_importance = edge_importance[selected_edges]

@@ -27,7 +27,7 @@ class GCNCoraPerturb(nn.Module):
         self.dataset_name=dataset_name
 
         # P_hat needs to be symmetric ==> learn vector representing entries in upper/lower triangular matrix and use to populate P_hat later
-        self.P_vec_size = int((self.num_nodes * self.num_nodes - self.num_nodes) / 2) + self.num_nodes  # # 上三角元素数量
+        self.P_vec_size = int((self.num_nodes * self.num_nodes - self.num_nodes) / 2) + self.num_nodes  # # Number of upper triangle elements
 
         if self.edge_additions:
             self.P_vec = Parameter(torch.FloatTensor(torch.zeros(self.P_vec_size)))
@@ -87,31 +87,31 @@ class GCNCoraPerturb(nn.Module):
                 # self.P_vec.data.uniform_(min_value, init_range)
 
     def get_mask_parameters(self) -> nn.Parameter:
-        """获取可训练的掩码参数"""
+        """Obtain trainable mask parameters"""
         return self.P_vec
 
     def forward(self, x, sub_adj):
         self.sub_adj = sub_adj
         # Same as normalize_adj in utils.py except includes P_hat in A_tilde
-        self.P_hat_symm = create_symm_matrix_from_vec(self.P_vec, self.num_nodes)  # Ensure symmetry 向量→对称矩阵
+        self.P_hat_symm = create_symm_matrix_from_vec(self.P_vec, self.num_nodes)  # Ensure symmetry vector → symmetric matrix
 
         A_tilde = torch.FloatTensor(self.num_nodes, self.num_nodes)
         A_tilde.requires_grad = True
 
         if self.edge_additions:  # Learn new adj matrix directly
-            # 扰动后邻接矩阵
+            # Perturbed adjacency matrix
             A_tilde = F.sigmoid(self.P_hat_symm) + torch.eye(self.num_nodes)  # Use sigmoid to bound P_hat in [0,1]
         else:  # Learn P_hat that gets multiplied element-wise with adj -- only edge deletions
             A_tilde = F.sigmoid(self.P_hat_symm) * self.sub_adj + torch.eye(
                 self.num_nodes)  # Use sigmoid to bound P_hat in [0,1]
 
-        D_tilde = get_degree_matrix(A_tilde).detach()  # Don't need gradient of this 度矩阵
+        D_tilde = get_degree_matrix(A_tilde).detach()  # Don't need gradient of this degree matrix
         # Raise to power -1/2, set all infs to 0s
         D_tilde_exp = D_tilde ** (-1 / 2)
         D_tilde_exp[torch.isinf(D_tilde_exp)] = 0
 
         # Create norm_adj = (D + I)^(-1/2) * (A + I) * (D + I) ^(-1/2)
-        norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)  # 归一化邻接矩阵
+        norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)  # Normalized adjacency matrix
 
         if self.model_name == "GCN":
             if self.gcn_layer == 3:
@@ -139,7 +139,7 @@ class GCNCoraPerturb(nn.Module):
                 else:
                     x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
-            # 最后一层
+            # last layer
             x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
             return F.log_softmax(x, dim=1)
         elif self.model_name in ["GraphConv"]:
@@ -151,20 +151,20 @@ class GCNCoraPerturb(nn.Module):
                 x = conv(x, edge_index, edge_weight=edge_attr)
                 x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
-            # 最后一层
+            # last layer
             x = self.layers[-1](x, edge_index, edge_weight=edge_attr)
             return F.log_softmax(x, dim=1)
 
     def forward_prediction(self, x):
         # Same as forward but uses P instead of P_hat ==> non-differentiable
-        # but needed for actual predictions  双模式预测机制
+        # but needed for actual predictions dual-mode prediction mechanism
 
-        self.P = (F.sigmoid(self.P_hat_symm) >= 0.5).float()  # threshold P_hat 二值化阈值
+        self.P = (F.sigmoid(self.P_hat_symm) >= 0.5).float()  # threshold P_hat binarization threshold
 
         if self.edge_additions:
             A_tilde = self.P + torch.eye(self.num_nodes)
         else:
-            A_tilde = self.P * self.adj + torch.eye(self.num_nodes)  # 离散化邻接矩阵
+            A_tilde = self.P * self.adj + torch.eye(self.num_nodes)  # discretized adjacency matrix
 
         D_tilde = get_degree_matrix(A_tilde)
         # Raise to power -1/2, set all infs to 0s
@@ -199,7 +199,7 @@ class GCNCoraPerturb(nn.Module):
                 else:
                     x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
-            # 最后一层
+            # last layer
             x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
             return F.log_softmax(x, dim=1), self.P
         elif self.model_name in ["GraphConv", "GAT"]:
@@ -210,15 +210,15 @@ class GCNCoraPerturb(nn.Module):
                 x = conv(x, edge_index, edge_weight=edge_attr)
                 x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
-            # 最后一层
+            # last layer
             x = self.layers[-1](x, edge_index, edge_weight=edge_attr)
             return F.log_softmax(x, dim=1), self.P
 
     def loss(self, output, y_pred_orig, y_pred_new_actual):
         """
-        反事实损失函数
+        Counterfactual loss function
         """
-        pred_same = (y_pred_new_actual == y_pred_orig).float()  # 当预测未改变时梯度为0（停止优化）
+        pred_same = (y_pred_new_actual == y_pred_orig).float()  # The gradient is 0 when the prediction has not changed (stop optimization)
 
         # Need dim >=2 for F.nll_loss to work
         output = output.unsqueeze(0)
@@ -231,9 +231,9 @@ class GCNCoraPerturb(nn.Module):
         cf_adj.requires_grad = True  # Need to change this otherwise loss_graph_dist has no gradient
 
         # Want negative in front to maximize loss instead of minimizing it to find CFs
-        loss_pred = - F.nll_loss(output, y_pred_orig)  # 预测差异损失（负号表示最大化差异）
-        loss_graph_dist = sum(sum(abs(cf_adj - self.adj))) / 2  # Number of edges changed (symmetrical) 图结构变化量（边改变数）
+        loss_pred = - F.nll_loss(output, y_pred_orig)  # Prediction difference loss (negative sign means maximizing difference)
+        loss_graph_dist = sum(sum(abs(cf_adj - self.adj))) / 2  # Number of edges changed (symmetrical) The amount of change in the graph structure (number of edges changed)
 
         # Zero-out loss_pred with pred_same if prediction flips
-        loss_total = pred_same * loss_pred + self.beta * loss_graph_dist  # 复合损失, β：平衡预测改变与图修改量的超参数
+        loss_total = pred_same * loss_pred + self.beta * loss_graph_dist  # Composite loss, β: a hyperparameter that balances prediction changes with graph modifications
         return loss_total, loss_pred, loss_graph_dist, cf_adj

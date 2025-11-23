@@ -45,7 +45,7 @@ class GCN_extend(GCN):
             self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
             self.gc2 = GraphConvolution(nhid, nhid, with_bias=with_bias)
             self.gc3 = GraphConvolution(nhid, nclass, with_bias=with_bias)
-            self.lin = nn.Linear(nhid + nhid + nclass, nclass, bias=with_bias)  # 拼接多层输出
+            self.lin = nn.Linear(nhid + nhid + nclass, nclass, bias=with_bias)  # Splicing multi-layer output
         else:
             self.gc1 = GraphConvolution(nfeat, nhid, with_bias=with_bias)
             self.gc2 = GraphConvolution(nhid, nclass, with_bias=with_bias)
@@ -54,18 +54,18 @@ class GCN_extend(GCN):
 
     def forward(self, x, adj):
         if self.gcn_layer == 3:
-            x1 = F.relu(self.gc1(x, adj))  # 第一层卷积+激活
+            x1 = F.relu(self.gc1(x, adj))  # First layer convolution + activation
             x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = F.relu(self.gc2(x1, adj))  # 第二层卷积+激活
+            x2 = F.relu(self.gc2(x1, adj))  # Second layer convolution + activation
             x2 = F.dropout(x2, self.dropout, training=self.training)
-            x3 = self.gc3(x2, adj)  # 第三层无激活
-            x = self.lin(torch.cat((x1, x2, x3), dim=1))  # 特征拼接
-            return F.log_softmax(x, dim=1)  # 分类输出，输出层使用log_softmax适配NLLLoss
+            x3 = self.gc3(x2, adj)  # The third layer is not activated
+            x = self.lin(torch.cat((x1, x2, x3), dim=1))  # Feature splicing
+            return F.log_softmax(x, dim=1)  # Classification output, the output layer uses log_softmax to adapt NLLLoss
         else:
-            x1 = F.relu(self.gc1(x, adj))  # 第一层卷积+激活
+            x1 = F.relu(self.gc1(x, adj))  # First layer convolution + activation
             x1 = F.dropout(x1, self.dropout, training=self.training)
-            x2 = self.gc2(x1, adj)  # 第二层卷积
-            return F.log_softmax(x2, dim=1)  # 分类输出，输出层使用log_softmax适配NLLLoss
+            x2 = self.gc2(x1, adj)  # Second layer convolution
+            return F.log_softmax(x2, dim=1)  # Classification output, the output layer uses log_softmax to adapt NLLLoss
 
     def loss(self, pred, label):
         return F.nll_loss(pred, label)
@@ -79,7 +79,7 @@ class GCN_extend(GCN):
             weight_decay=self.weight_decay
         )
 
-        # # 添加学习率调度器
+        # # Add learning rate scheduler
         # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer,
         #     mode='max',
@@ -91,7 +91,7 @@ class GCN_extend(GCN):
         best_val_acc = 0.0
         best_model_state = None
 
-        # 训练循环
+        # training loop
         for epoch in range(train_iters):
             optimizer.zero_grad()
             output = self(features, adj)
@@ -99,7 +99,7 @@ class GCN_extend(GCN):
             loss.backward()
             optimizer.step()
 
-            # 每10轮验证一次
+            # Verified every 10 rounds
             if epoch % 10 == 0:
                 self.eval()
                 with torch.no_grad():
@@ -108,17 +108,17 @@ class GCN_extend(GCN):
                     preds = output_val[idx_val].argmax(dim=1)
                     val_acc = (preds == labels[idx_val]).float().mean().item()
 
-                    # 更新最佳模型
+                    # Update best model
                     if val_acc > best_val_acc:
                         best_val_acc = val_acc
                         best_model_state = self.state_dict().copy()
 
                     print(
                         f"Epoch {epoch}: Train Loss {loss.item():.4f}, Val Loss {val_loss.item():.4f}, Val Acc {val_acc:.4f}")
-                    # scheduler.step(val_acc)  # 根据验证准确率调整学习率
+                    # scheduler.step(val_acc) #Adjust the learning rate based on the verification accuracy
                 self.train()
 
-        # 加载最佳模型状态
+        # Load the best model state
         if best_model_state:
             self.load_state_dict(best_model_state)
             print(f"Loaded best model with Val Acc {best_val_acc:.4f}")
@@ -231,27 +231,27 @@ class PyGCompatibleGCN(nn.Module):
 
 def transfer_weights(dr_model, pyg_model, gcn_layer):
     print("PyG模型结构验证:")
-    print(f"conv1.lin存在: {hasattr(pyg_model.conv1, 'lin')}")  # 应为True
+    print(f"conv1.lin存在: {hasattr(pyg_model.conv1, 'lin')}")  # Should be True
     print(f"conv1.lin.weight形状: {pyg_model.conv1.lin.weight.shape}")
     print(f"DeepRobust gc1.weight形状: {dr_model.gc1.weight.shape}")
 
-    # 第一层权重转置 (1433,16) -> (16,1433)
+    # First layer weight transposition (1433,16) -> (16,1433)
     pyg_model.conv1.lin.weight.data = dr_model.gc1.weight.data.t().clone()
     # pyg_model.conv1.lin.weight.data.copy_(dr_model.gc1.weight.data)
     pyg_model.conv1.bias.data.copy_(dr_model.gc1.bias.data)
 
-    # 第二层权重转置 (16,16) -> (16,16)
+    # Second layer weight transposition (16,16) -> (16,16)
     pyg_model.conv2.lin.weight.data = dr_model.gc2.weight.data.t().clone()
     # pyg_model.conv2.lin.weight.data.copy_(dr_model.gc2.weight.data)
     pyg_model.conv2.bias.data.copy_(dr_model.gc2.bias.data)
 
     if gcn_layer == 3:
-        # 第三层权重转置 (16,7) -> (7,16)
+        # The third layer weight transposition (16,7) -> (7,16)
         pyg_model.conv3.lin.weight.data = dr_model.gc3.weight.data.t().clone()
         # pyg_model.conv2.lin.weight.data.copy_(dr_model.gc2.weight.data)
         pyg_model.conv3.bias.data.copy_(dr_model.gc3.bias.data)
 
-        # 线性拼接层权重转换
+        # Linear splicing layer weight conversion
         pyg_model.lin.weight.data.copy_(dr_model.lin.weight.data)
         pyg_model.lin.bias.data.copy_(dr_model.lin.bias.data)
     else:
@@ -287,7 +287,7 @@ def adj_to_edge_index(adj):
     :return:
     """
     coo_adj = sp.coo_matrix(adj)
-    # 使用np.vstack提高效率
+    # Use np.vstack to improve efficiency
     edge_array = np.vstack([coo_adj.row, coo_adj.col])
     return torch.tensor(edge_array, dtype=torch.long)
 
@@ -348,9 +348,9 @@ if __name__ == '__main__':
     adj, features, labels = data_robust.adj, data_robust.features, data_robust.labels
     idx_train, idx_val, idx_test = data_robust.idx_train, data_robust.idx_val, data_robust.idx_test
 
-    # 初始化PyG模型
-    print(f"特征矩阵类型: {type(features)}")  # 应为scipy.sparse.csr.csr_matrix
-    print(f"邻接矩阵类型: {type(adj)}")  # 应为scipy.sparse.csr.csr_matrix
+    # Initialize PyG model
+    print(f"特征矩阵类型: {type(features)}")  # Should be scipy.sparse.csr.csr_matrix
+    print(f"邻接矩阵类型: {type(adj)}")  # Should be scipy.sparse.csr.csr_matrix
 
     gnn_model, output = GCN_model(adj, features, labels, device, idx_train, idx_val)
 
@@ -360,9 +360,9 @@ if __name__ == '__main__':
     # initialize pyg model
     pyg_gcn = GCNtoPYG(gnn_model, device, features, labels)
 
-    # 预测一致性检查
+    # Prediction consistency check
     # dr_pred = dr_trained_model.predict(features, adj)
-    dr_logits = torch.tensor(output, device=device)  # 确保同设备
+    dr_logits = torch.tensor(output, device=device)  # Make sure the same device
     dr_pred = dr_logits.argmax(dim=1)
 
     pyg_gcn.eval()
@@ -372,7 +372,7 @@ if __name__ == '__main__':
     accuracy = (dr_pred == pyg_pred).float().mean()
     print(f"验证集预测一致性: {accuracy.item() * 100:.2f}%")
 
-    # 构建子图向量
+    # Construct subgraph vector
     target_node = 5
     sub_adj, sub_edge_index, sub_feat, sub_labels, node_dict = get_neighbourhood(target_node, pyg_data.edge_index,
                                                                                  features, labels,GCN_LAYER)
@@ -386,7 +386,7 @@ if __name__ == '__main__':
     # sub_edge_index, _ = subgraph(
     #     subset=target_nodes,
     #     edge_index=pyg_data.edge_index,
-    #     relabel_nodes=True  # 关键：重映射节点ID[9](@ref)
+    #     relabel_nodes=True #Key: remap node ID[9](@ref)
     # )
     # node_embeddings = pyg_gcn.node_embeddings(sub_x, sub_edge_index)
     # graph_embeddings = pyg_gcn.graph_embeddings(node_embeddings)
@@ -395,10 +395,10 @@ if __name__ == '__main__':
     # explainer = Explainer(
     #     model=pyg_gcn,
     #     algorithm=GNNExplainer(
-    #         epochs=100,  # 减少训练轮次
-    #         lr=0.1,  # 提高学习率
-    #         log=False,  # 禁用日志
-    #         coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # 添加正则化防止梯度爆炸
+    #         epochs=100, # Reduce training rounds
+    #         lr=0.1, # Increase learning rate
+    #         log=False, # disable logging
+    #         coeffs={'edge_size': 0.005, 'node_feat_size': 0.1} # Add regularization to prevent gradient explosion
     #     ),
     #     explanation_type='model',
     #     node_mask_type='attributes',
@@ -421,10 +421,10 @@ if __name__ == '__main__':
     #     num_nodes=pyg_data.num_nodes
     # )
     #
-    # # 创建子图特征
+    # #Create subgraph features
     # x_sub = pyg_data.x[subset]
     #
-    # # 执行解释
+    # #Execution explanation
     # explanation = explainer(
     #     x=x_sub,
     #     edge_index=edge_index_sub,

@@ -74,23 +74,23 @@ def compute_motif_viol(orig_sub_adj, edited_sub_adj, tau_c):
 
 def clustering_coefficient(adj_tensor: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """
-    使用 PyTorch 近似计算无向图的局部聚类系数（向量化实现）。
-    注意：这是对传统聚类系数的一种近似，主要用于训练和损失计算。
+    Approximate calculation of the local clustering coefficient of an undirected graph using PyTorch (vectorized implementation).
+    Note: This is an approximation of the traditional clustering coefficient and is mainly used for training and loss calculation.
     """
-    # 计算每个节点的度
+    # Calculate the degree of each node
     degrees = torch.sum(adj_tensor, dim=1)
 
-    # 计算 A²，其对角线元素是节点邻居之间存在的路径数（每条边被计算两次）
+    # Computes A², whose diagonal elements are the number of paths that exist between a node's neighbors (each edge is calculated twice)
     A_squared = torch.mm(adj_tensor, adj_tensor)
-    # 节点i的邻居之间实际存在的边数近似为 (A_squared[i, i] - degrees[i]) / 2.0
-    # 减 degrees[i] 是因为邻接矩阵对角线（自环）也被计算在内，通常需要减去
-    # 这里简化处理，直接使用 A_squared 的对角线
-    triangles = torch.diag(A_squared) / 2.0  # 更精确的计算可能需要调整
+    # The actual number of edges between the neighbors of node i is approximately (A_squared[i, i] - degrees[i]) / 2.0
+    # Subtract degrees[i] because the adjacency matrix diagonal (self-loop) is also counted and usually needs to be subtracted
+    # Simplify the process here and use the diagonal of A_squared directly.
+    triangles = torch.diag(A_squared) / 2.0  # More precise calculations may require adjustments
 
-    # 计算可能存在的最大边数 k*(k-1)/2
+    # Calculate the maximum possible number of edges k*(k-1)/2
     max_possible_edges = degrees * (degrees - 1) / 2.0
 
-    # 避免除以零：对于度小于2的节点，聚类系数设为0
+    # Avoid dividing by zero: for nodes with degree less than 2, the clustering coefficient is set to 0
     # clustering_coeffs = torch.zeros_like(degrees, dtype=torch.float32)
     # valid_mask = (degrees > 1)
     # clustering_coeffs[valid_mask] = triangles[valid_mask] / max_possible_edges[valid_mask]

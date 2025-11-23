@@ -42,11 +42,11 @@ class CFExplainer:
 
         # Instantiate CF model class, load weights from original model
         self.cf_model = GCNCoraPerturb(self.sub_feat.shape[1], n_hid, self.num_classes, self.sub_adj, dropout, beta,
-                                       gcn_layer, with_bias=with_bias, test_model=test_model, dataset_name=dataset_name,heads=heads)  # 加载可扰动模型
+                                       gcn_layer, with_bias=with_bias, test_model=test_model, dataset_name=dataset_name,heads=heads)  # Load a perturbed model
 
-        self.cf_model.load_state_dict(self.model.state_dict(), strict=False)  # 继承原模型参数
+        self.cf_model.load_state_dict(self.model.state_dict(), strict=False)  # Inherit original model parameters
 
-        # Freeze weights from original model in cf_model 冻结原始参数，仅训练扰动矩阵
+        # Freeze weights from original model in cf_model Freeze the original parameters and only train the perturbation matrix
         for name, param in self.cf_model.named_parameters():
             if name.endswith("weight") or name.endswith("bias") or name.endswith("att_src") or name.endswith(
                     "att_dst") or name.endswith("att_edge"):
@@ -96,14 +96,14 @@ class CFExplainer:
 
     def train(self, epoch):
         t = time.time()
-        self.cf_model.eval()  # 反事实模型g训练阶段采用评估模式，冻结dropout和batchnorm
-        self.cf_optimizer.zero_grad()  # 清空上一轮的梯度（避免累积）
+        self.cf_model.eval()  # The counterfactual model g training phase uses evaluation mode, freezing dropout and batchnorm
+        self.cf_optimizer.zero_grad()  # Clear the gradients of the previous round (to avoid accumulation)
 
         # output uses differentiable P_hat ==> adjacency matrix not binary, but needed for training
         # output_actual uses thresholded P ==> binary adjacency matrix ==> gives actual prediction
-        # 前向传播（包含连续和二值化预测）
-        output = self.cf_model.forward(self.x, self.A_x)  # 可微分预测
-        output_actual, self.P = self.cf_model.forward_prediction(self.x)  # 离散预测
+        # Forward propagation (including continuous and binary predictions)
+        output = self.cf_model.forward(self.x, self.A_x)  # Differentiable prediction
+        output_actual, self.P = self.cf_model.forward_prediction(self.x)  # discrete forecast
 
         # Need to use new_idx from now on since sub_adj is reindexed
         y_pred_new = torch.argmax(output[self.new_idx])
@@ -111,18 +111,18 @@ class CFExplainer:
 
         # loss_pred indicator should be based on y_pred_new_actual NOT y_pred_new!
         loss_total, loss_pred, loss_graph_dist, cf_adj = self.cf_model.loss(output[self.new_idx], self.y_pred_orig,
-                                                                            y_pred_new_actual)  # 计算复合损失
-        loss_total.backward()  # 计算当前梯度
+                                                                            y_pred_new_actual)  # Calculate compound loss
+        loss_total.backward()  # Calculate the current gradient
 
-        # 检查掩码参数梯度
+        # Check mask parameter gradient
         # print("P_vec.grad:", self.cf_model.get_mask_parameters().grad)
         if self.cf_model.get_mask_parameters().grad is not None:
             print(f"Mask grad norm: {self.cf_model.get_mask_parameters().grad.norm().item()}")
         else:
             print("Mask grad is None")
 
-        clip_grad_norm(self.cf_model.parameters(), 2.0)  # 裁剪梯度幅度
-        self.cf_optimizer.step()  # 根据梯度更新参数
+        clip_grad_norm(self.cf_model.parameters(), 2.0)  # Clipping gradient magnitude
+        self.cf_optimizer.step()  # Update parameters based on gradient
         print('Node idx: {}'.format(self.node_idx),
               'New idx: {}'.format(self.new_idx),
               'Epoch: {:04d}'.format(epoch + 1),

@@ -26,17 +26,17 @@ class GraphConvNet(nn.Module):
         self.num_layers = num_layers
         self.dropout = dropout
 
-        # 第一层
+        # first floor
         self.layers.append(GraphConv(in_channels, hidden_channels, aggr="add"))
 
-        # 中间层
+        # middle layer
         for _ in range(num_layers - 2):
             self.layers.append(GraphConv(hidden_channels, hidden_channels, aggr="add"))
 
-        # 最后一层
+        # last layer
         self.layers.append(GraphConv(hidden_channels, out_channels, aggr="add"))
 
-        # 设备选择
+        # Equipment selection
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
@@ -44,7 +44,7 @@ class GraphConvNet(nn.Module):
 
         self.to(self.device)
 
-        # 优化器
+        # optimizer
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
 
     def forward(self, x, edge_index, edge_weight=None):
@@ -52,7 +52,7 @@ class GraphConvNet(nn.Module):
             x = conv(x, edge_index, edge_weight=edge_weight)
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
-        # 最后一层
+        # last layer
         x = self.layers[-1](x, edge_index, edge_weight=edge_weight)
         return F.log_softmax(x, dim=1)
 
@@ -94,7 +94,7 @@ class GraphConvNet(nn.Module):
     def fit(self, data, train_iters=500):
         best_val_acc = 0.0
         best_model_state = None
-        # 训练循环
+        # training loop
         for epoch in range(train_iters):
             loss = self.train_step(data)
             train_acc, val_acc, test_acc = self.test_step(data)

@@ -32,10 +32,10 @@ def label_process(labels, adj):
 
 
 def efficient_tensor_to_csr(features):
-    # 获取Tensor数据
+    # Get Tensor data
     features_np = features.detach().cpu().numpy()
 
-    # 直接创建CSR矩阵
+    # Create CSR matrix directly
     return sp.csr_matrix(features_np)
 
 
@@ -46,7 +46,7 @@ class ChameleonDataset(Dataset):
         self.num_nodes = self.pyg_data.num_nodes
         self.num_features = self.pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         edge_set = set((u.item(), v.item()) for u, v in self.pyg_data.edge_index.t())
         is_symmetric = all((v, u) in edge_set for (u, v) in edge_set)
         print(f"Edge index is symmetric: {is_symmetric}")
@@ -60,7 +60,7 @@ class ChameleonDataset(Dataset):
         self.features = efficient_tensor_to_csr(self.pyg_data.x)
         self.labels = self.pyg_data.y.view(-1).long().numpy()
 
-        # 创建训练/验证/测试掩码
+        # Create training/validation/test masks
         self.idx_train = self._create_mask(0.50)
         self.idx_val = self._create_mask(0.25, exclude=self.idx_train)
         self.idx_test = self._create_mask(0.25, exclude=np.concatenate([self.idx_train, self.idx_val]))
@@ -273,7 +273,7 @@ def adj_to_edge_index(adj):
     :return:
     """
     coo_adj = sp.coo_matrix(adj)
-    # 使用np.vstack提高效率
+    # Use np.vstack to improve efficiency
     edge_array = np.vstack([coo_adj.row, coo_adj.col])
     return torch.tensor(edge_array, dtype=torch.long)
 
@@ -308,12 +308,12 @@ class BAShapesDataset(Dataset):
         self.num_nodes = pyg_data.num_nodes
         self.num_features = pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         self.adj = self.edge_index_to_adj(pyg_data.edge_index)
         self.features = efficient_tensor_to_csr(pyg_data.x)
         self.labels = pyg_data.y.numpy()
 
-        # 创建训练/验证/测试掩码
+        # Create training/validation/test masks
         # if test_model == "GAT":
         #     transform = RandomNodeSplit(split="train_rest", num_val=140, num_test=200)
         #     data = transform(pyg_data)
@@ -348,12 +348,12 @@ class TreeCyclesDataset(Dataset):
         self.num_nodes = pyg_data.num_nodes
         self.num_features = pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         self.adj = self.edge_index_to_adj(pyg_data.edge_index)
         self.features = efficient_tensor_to_csr(pyg_data.x)
         self.labels = pyg_data.y.numpy()
 
-        # 创建训练/验证/测试掩码
+        # Create training/validation/test masks
         self.idx_train = self._create_mask(0.2)
         self.idx_val = self._create_mask(0.1, exclude=self.idx_train)
         self.idx_test = self._create_mask(0.7, exclude=np.concatenate([self.idx_train, self.idx_val]))
@@ -380,12 +380,12 @@ class LoanDecisionDataset(Dataset):
         self.num_nodes = pyg_data.num_nodes
         self.num_features = pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         self.adj = self.edge_index_to_adj(pyg_data.edge_index)
         self.features = efficient_tensor_to_csr(pyg_data.x)
         self.labels = pyg_data.y.numpy()
 
-        # 创建训练/验证/测试掩码
+        # Create training/validation/test masks
         self.idx_train = self._create_mask(0.2)
         self.idx_val = self._create_mask(0.1, exclude=self.idx_train)
         self.idx_test = self._create_mask(0.7, exclude=np.concatenate([self.idx_train, self.idx_val]))
@@ -413,7 +413,7 @@ class OGBNArxivDataset(Dataset):
         self.num_nodes = self.pyg_data.num_nodes
         self.num_features = self.pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         edge_set = set((u.item(), v.item()) for u, v in self.pyg_data.edge_index.t())
         is_symmetric = all((v, u) in edge_set for (u, v) in edge_set)
         print(f"Edge index is symmetric: {is_symmetric}")
@@ -427,7 +427,7 @@ class OGBNArxivDataset(Dataset):
         self.features = efficient_tensor_to_csr(self.pyg_data.x)
         self.labels = self.pyg_data.y.view(-1).long().numpy()
 
-        # 创建训练0.54-90941/验证0.18-29799/测试掩码0.28-48302
+        # Create training 0.54-90941/validation 0.18-29799/test mask 0.28-48302
         split_idx = ogbn_arxiv_data.get_idx_split()
         self.idx_train = split_idx["train"]
         self.idx_val = split_idx["valid"]

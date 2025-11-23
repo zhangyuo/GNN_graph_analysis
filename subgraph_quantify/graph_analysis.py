@@ -180,7 +180,7 @@ def attack_subgraph_generate(gnn_model, attack_method, attack_budget_list, targe
         for budget in attack_budget_list:  # out-layer given a fixed budget, it's an isolated test
             # Orbit attack(1518)
             surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val,
-                                               device=device)  # 代理损失:gnn model
+                                               device=device)  # Agency loss:gnn model
             model = OrbitAttack(surrogate, df_orbit, nnodes=adj.shape[0], device=device)  # initialize the attack model
             model = model.to(device)
             if attack_type == "Evasion":
@@ -402,10 +402,10 @@ def gnn_explainer_generate(test_model, gnn_model, device, features, labels, gcn_
     explainer = Explainer(
         model=pyg_gcn,
         algorithm=GNNExplainer(
-            epochs=epoch,  # 减少训练轮次
-            # lr=0.1,  # 提高学习率
-            log=False,  # 禁用日志
-            # coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # 添加正则化防止梯度爆炸
+            epochs=epoch,  # Reduce training rounds
+            # lr=0.1, # Increase learning rate
+            log=False,  # Disable logging
+            # coeffs={'edge_size': 0.005, 'node_feat_size': 0.1} # Add regularization to prevent gradient explosion
         ),
         explanation_type='model',
         node_mask_type='attributes',
@@ -433,13 +433,13 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
     explainer = Explainer(
         model=pyg_gcn,
         algorithm=PGExplainer(
-            epochs=epochs,  # 减少训练轮次
-            # lr=0.1,  # 提高学习率
-            log=False,  # 禁用日志
-            # coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # 添加正则化防止梯度爆炸
+            epochs=epochs,  # Reduce training rounds
+            # lr=0.1, # Increase learning rate
+            log=False,  # Disable logging
+            # coeffs={'edge_size': 0.005, 'node_feat_size': 0.1} # Add regularization to prevent gradient explosion
         ),
         explanation_type='phenomenon',  # PGExplainer only supports explanations of the 'phenomenon' type
-        edge_mask_type='object',  # PGExplainer主要生成边掩码
+        edge_mask_type='object',  # PGExplainer mainly generates edge masks
         model_config=dict(
             mode='multiclass_classification',
             task_level='node',
@@ -447,14 +447,14 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
         )
     )
     # PGExplainer needs to be trained based on nodes set after initializing
-    train_indices = pyg_data.train_mask.nonzero(as_tuple=True)[0]  # 获取训练节点索引
+    train_indices = pyg_data.train_mask.nonzero(as_tuple=True)[0]  # Get training node index
 
-    # 新增：过滤掉可能产生空子图的节点（如孤立节点）
+    # New: Filter out nodes that may produce empty subgraphs (such as orphan nodes)
     valid_train_indices = []
     for idx in train_indices:
-        # 计算节点的度（邻居数）
+        # Calculate the degree of a node (number of neighbors)
         degree = (pyg_data.edge_index[0] == idx).sum().item()
-        if degree > 0:  # 只保留有邻居的节点
+        if degree > 0:  # Only keep nodes with neighbors
             valid_train_indices.append(idx)
     train_indices = torch.tensor(valid_train_indices)
 
@@ -471,7 +471,7 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
     for epoch in tqdm(range(epochs)):
         for index in train_indices:
             # Calculate the loss for each node and update the parameters of PGExplainer
-            # 将索引转换为标量
+            # Convert index to scalar
             index_tensor = index.unsqueeze(0) if index.dim() == 0 else index
             if test_model == "GCN":
                 loss = explainer.algorithm.train(
@@ -480,7 +480,7 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
                     pyg_data.x,
                     edge_index,
                     target=pyg_data.y.to(torch.long),
-                    index=index_tensor  # 传入标量
+                    index=index_tensor  # Pass in scalar
                 )
             elif test_model in ["GraphTransformer", "GAT"]:
                 loss = explainer.algorithm.train(
@@ -490,7 +490,7 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
                     edge_index,
                     edge_weight=edge_weight,
                     target=pyg_data.y.to(torch.long),
-                    index=index_tensor  # 传入标量
+                    index=index_tensor  # Pass in scalar
                 )
             elif test_model in ["GraphConv"]:
                 loss = explainer.algorithm.train(
@@ -500,7 +500,7 @@ def pg_explainer_generate(test_model, gnn_model, device, features, labels, gcn_l
                     edge_index,
                     edge_weight=edge_weight,
                     target=pyg_data.y.to(torch.long),
-                    index=index_tensor  # 传入标量
+                    index=index_tensor  # Pass in scalar
                 )
     return explainer
 
@@ -582,7 +582,7 @@ def pg_explainer_generate_batch(test_model, gnn_model, device, features, labels,
 
             # print(f"[Forward Check] node={target_idx} x_sub={x_sub.shape} y_sub={y_sub.shape} y_hat={y_hat.shape}")
 
-            # --- 关键部分：正确构建 target / index ---
+            # --- Critical part: Build target/index correctly ---
             target_tensor = y_sub                          # (num_sub_nodes,)  NOT a scalar
             index_tensor = torch.tensor([mapping],         # (1,)
                                        dtype=torch.long,
@@ -616,7 +616,7 @@ def pg_explainer_generate_batch_(test_model, gnn_model, device, features, labels
     pyg_gcn = pyg_gcn.to(device)
     pyg_data = pyg_data.to(device)
 
-    # ⚡ 使用 Explainer 封装 PGExplainer
+    # ⚡ Use Explainer to encapsulate PGExplainer
     explainer = Explainer(
         model=pyg_gcn,
         algorithm=PGExplainer(epochs=epochs, lr=0.01, emb_dim=128, hidden_dim=64),
@@ -636,7 +636,7 @@ def pg_explainer_generate_batch_(test_model, gnn_model, device, features, labels
     else:
         train_indices = train_indices.to(device)
 
-    # 过滤掉孤立节点
+    # Filter out orphan nodes
     valid_train_indices = []
     for idx in train_indices:
         idx_int = idx.item()
@@ -652,11 +652,11 @@ def pg_explainer_generate_batch_(test_model, gnn_model, device, features, labels
     if len(train_indices) == 0:
         raise ValueError("没有找到有效训练节点（可能全部训练节点都是孤立节点）。")
 
-    # ⚡ 先训练 PGExplainer
+    # ⚡ Train PGExplainer first
     for epoch in range(epochs):
         total_loss = 0
         for target in valid_train_indices:
-            # 抽取 k-hop 子图
+            # Extract k-hop subgraphs
             subset, edge_index_sub, mapping, edge_mask = k_hop_subgraph(
                 target.item(), num_hops=gcn_layer, edge_index=pyg_data.edge_index, relabel_nodes=True
             )
@@ -667,7 +667,7 @@ def pg_explainer_generate_batch_(test_model, gnn_model, device, features, labels
             mapping = int(mapping)
             target_label = y_sub[mapping]
 
-            # train 方法更新内部 mask
+            # The train method updates the internal mask
             loss = explainer.algorithm.train(
                 model=pyg_gcn,
                 x=x_sub,
@@ -680,8 +680,8 @@ def pg_explainer_generate_batch_(test_model, gnn_model, device, features, labels
 
         print(f"Epoch {epoch + 1}, Avg loss: {total_loss / len(valid_train_indices):.4f}")
 
-    # # ⚡ 训练完毕后，再用 explainer() 对单节点解释
-    # # 示例: target_node = target_node_list[0]
+    # # ⚡ After training, use explainer() to explain the single node
+    # # Example: target_node = target_node_list[0]
     # subset, edge_index_sub, mapping, edge_mask = k_hop_subgraph(
     #     target_node_list[0], num_hops=gcn_layer, edge_index=pyg_data.edge_index, relabel_nodes=True
     # )
@@ -692,7 +692,7 @@ def pg_explainer_generate_batch_(test_model, gnn_model, device, features, labels
     #     x=x_sub,
     #     edge_index=edge_index_sub,
     #     target=y_sub,
-    #     node_idx=mapping.tolist().index(0)  # target 在子图中的位置
+    #     node_idx=mapping.tolist().index(0) # The position of target in the subgraph
     # )
 
     return explainer

@@ -6,8 +6,8 @@ import pandas as pd
 class OrbitTableGenerator:
     def __init__(self,dataset):
         self.dataset = dataset
-        res = os.path.abspath(__file__)  # 获取当前文件绝对路径
-        base_path = os.path.dirname(res)  # 获取当前文件的上级目录
+        res = os.path.abspath(__file__)  # Get the absolute path of the current file
+        base_path = os.path.dirname(res)  # Get the parent directory of the current file
         self.filepath = base_path + '/dataset/orbit/'
 
     def generate_orbit_table(self):

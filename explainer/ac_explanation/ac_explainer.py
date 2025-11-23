@@ -56,7 +56,7 @@ class ACExplainer:
                  test_model: str = "GCN",
                  heads: int = 2,
                  dataset_name: str = "cora"):
-        # 将模型和数据移动到指定设备
+        # Move models and data to a specified device
         self.model = model.to(device)
         self.model.eval()
         self.extended_sub_adj = extended_sub_adj.to(device)
@@ -67,10 +67,10 @@ class ACExplainer:
         self.sub_labels = sub_labels
         self.y_pred_orig = y_pred_orig
 
-        # 损失权重
-        self.lambda_pred = lambda_pred  # 预测损失权重
-        self.lambda_dist = lambda_dist  # 稀疏损失权重
-        self.lambda_plau = lambda_plau  # 现实性损失权重
+        # loss weight
+        self.lambda_pred = lambda_pred  # Predicted loss weight
+        self.lambda_dist = lambda_dist  # Sparse loss weight
+        self.lambda_plau = lambda_plau  # Reality Loss Weight
 
         self.num_classes = nclass
         self.target_node = target_node
@@ -94,7 +94,7 @@ class ACExplainer:
         self.with_bias = with_bias
         self.test_model = test_model
 
-        # 创建扰动模型
+        # Create a perturbation model
         self.cf_model = GNNPerturb(
             nfeat=self.sub_feat.size(1),
             nhid=self.n_hid,
@@ -123,11 +123,11 @@ class ACExplainer:
             dataset_name=dataset_name
         ).to(device)
 
-        # 继承原模型参数
+        # Inherit original model parameters
         self.cf_model.load_state_dict(self.model.state_dict(), strict=False)
 
         # if test_model == "GCN":
-        # Freeze weights from original model in cf_model 冻结原始参数，仅训练扰动矩阵
+        # Freeze weights from original model in cf_model Freeze the original parameters and only train the perturbation matrix
         for name, param in self.cf_model.named_parameters():
             if name.endswith("weight") or name.endswith("bias") or name.endswith("att_src") or name.endswith("att_dst") or name.endswith("att_edge"):
             # if name.endswith("weight") or name.endswith("bias"):
@@ -137,7 +137,7 @@ class ACExplainer:
         for name, param in self.cf_model.named_parameters():
             print("cf model requires_grad: ", name, param.requires_grad)
 
-        # 优化器设置
+        # Optimizer settings
         if self.optimizer_type == "SGD" and self.n_momentum == 0.0:
             self.cf_optimizer = optim.SGD(self.cf_model.parameters(), lr=self.lr)
         elif self.optimizer_type == "SGD" and self.n_momentum != 0.0:
@@ -152,7 +152,7 @@ class ACExplainer:
         self.scheduler = optim.lr_scheduler.StepLR(self.cf_optimizer, step_size=100, gamma=0.5)
 
     def explain(self) -> dict:
-        """训练解释器"""
+        """Train the explainer"""
         best_loss = float('inf')
         best_delta_A = None
         best_pred = None
@@ -165,34 +165,34 @@ class ACExplainer:
         best_cf_adj_1 = None
         best_plau_loss_1 = None
 
-        self.cf_model.eval()  # 反事实模型g训练阶段采用评估模式，冻结dropout和batchnorm
+        self.cf_model.eval()  # The counterfactual model g training phase uses evaluation mode, freezing dropout and batchnorm
 
         for epoch in tqdm(range(self.epoch)):
             # print(f"\n######## epoch: {epoch + 1} #############")
             self.cf_optimizer.zero_grad()
 
-            # 前向传播
-            output = self.cf_model.forward(self.sub_feat, self.extended_sub_adj)  # 可微分预测
-            output_actual = self.cf_model.forward_prediction(self.sub_feat)  # 离散预测
+            # forward propagation
+            output = self.cf_model.forward(self.sub_feat, self.extended_sub_adj)  # Differentiable prediction
+            output_actual = self.cf_model.forward_prediction(self.sub_feat)  # discrete forecast
 
             y_pred_new = torch.argmax(output[self.node_idx])
             y_pred_new_actual = torch.argmax(output_actual[self.node_idx])
 
-            # 计算损失
+            # Calculate losses
             total_loss, pred_loss, dist_loss, plau_loss, cf_adj, delta_A, perturb_layer, full_mask = self.cf_model.compute_losses(
                 output,
                 self.y_pred_orig,
                 y_pred_new_actual)
 
-            # 反向传播
+            # Backpropagation
             total_loss.backward()
 
-            # 检查掩码参数梯度
+            # Check mask parameter gradient
             print("M.grad:", self.cf_model.get_mask_parameters().grad)
             if self.cf_model.get_mask_parameters().grad is not None:
                 print(f"Mask grad norm: {self.cf_model.get_mask_parameters().grad.norm().item()}")
 
-            clip_grad_norm_(self.cf_model.parameters(), 2.0)  # 裁剪梯度幅度
+            clip_grad_norm_(self.cf_model.parameters(), 2.0)  # Clipping gradient magnitude
             self.cf_optimizer.step()
             # if epoch % 20 == 0:
             print('Target node: {}'.format(self.target_node),
@@ -207,7 +207,7 @@ class ACExplainer:
                   'orig pred: {}, new pred: {}, new pred nondiff: {}'.format(self.y_pred_orig, y_pred_new,
                                                                              y_pred_new_actual))
             print(" ")
-            # 早停检查
+            # Early stop inspection
             if y_pred_new_actual != self.y_pred_orig and total_loss.item() < best_loss:
                 best_loss = total_loss.item()
                 best_delta_A = delta_A.detach().clone()
@@ -224,24 +224,24 @@ class ACExplainer:
                 best_cf_adj_1 = cf_adj
                 best_plau_loss_1 = plau_loss
 
-            if no_improve > 20:  # 提前停止
+            if no_improve > 20:  # Stop early
                 break
             self.scheduler.step()
 
         print("Start minimality pruning")
         if best_delta_A is not None:
-            # 后剪枝
+            # post-pruning
             if PRUNING:
                 pruned_delta_A = self.minimality_pruning(best_delta_A, perturb_layer, full_mask)
                 final_result = {
                     "success": True,
-                    "delta_A": pruned_delta_A,  # 使用剪枝后的扰动
+                    "delta_A": pruned_delta_A,  # Perturbation after using pruning
                     "cf_adj": perturb_layer.build_perturbed_adj(
                         self.extended_sub_adj,
                         pruned_delta_A
                     ),
                     "original_pred": self.y_pred_orig,
-                    "new_pred": self._validate_pruning(pruned_delta_A, perturb_layer),  # 验证预测
+                    "new_pred": self._validate_pruning(pruned_delta_A, perturb_layer),  # Validate predictions
                     "plau_loss": best_plau_loss
                 }
             else:
@@ -259,7 +259,7 @@ class ACExplainer:
                 "delta_A": best_delta_A_1,
                 "cf_adj": best_cf_adj_1,
                 "original_pred": self.y_pred_orig,
-                "new_pred": best_pred_1,  # 验证预测
+                "new_pred": best_pred_1,  # Validate predictions
                 "plau_loss": best_plau_loss_1
             }
 
@@ -274,35 +274,35 @@ class ACExplainer:
         if edge_indices.size(0) == 0:
             return current_delta
 
-        # 1. 获取所有待剪枝边的 full_mask 值
+        # 1. Get the full_mask value of all edges to be pruned
         edge_mask_values = full_mask[edge_indices[:, 0], edge_indices[:, 1]]
 
-        # 2. 构建自定义排序键：优先处理加边（正值），然后才是减边（负值）
-        #    技巧：为加边赋予一个大的偏移量（例如 +1000）确保其排在减边之前
-        #    同时保持组内按绝对值降序
+        # 2. Build a custom sort key: add edges (positive values) first, then subtract edges (negative values)
+        #    Tip: Give the plus edge a large offset (e.g. +1000) to ensure it comes before the minus edge
+        #    While maintaining descending order of absolute value within the group
         sorting_key = torch.where(
             edge_mask_values > 0,
-            1000 + torch.abs(edge_mask_values),  # 加边组：键值范围 [1000, 1000+max_abs]
-            torch.abs(edge_mask_values)  # 减边组：键值范围 [0, max_abs]
+            1000 + torch.abs(edge_mask_values),  # Add edge group: key value range [1000, 1000+max_abs]
+            torch.abs(edge_mask_values)  # Subtraction edge group: key value range [0, max_abs]
         )
 
-        # 3. 按自定义键降序排序 -> 加边(高键值)在前，减边(低键值)在后；组内绝对值大的在前
-        # 按扰动强度排序（绝对值越大越重要）
-        sorted_indices = torch.argsort(sorting_key, descending=True)  # 降序排序
+        # 3. Sort in descending order by custom key -> add edges (high key value) in front, subtract edges (low key value) in the back; the ones with the largest absolute value in the group are in front
+        # Sort by disturbance intensity (the larger the absolute value, the more important)
+        sorted_indices = torch.argsort(sorting_key, descending=True)  # Sort descending
 
         # abs_values = torch.abs(full_mask[edge_indices[:, 0], edge_indices[:, 1]])
-        # sorted_indices = torch.argsort(abs_values, descending=True)  # 降序排序
+        # sorted_indices = torch.argsort(abs_values, descending=True) # Sort in descending order
 
-        # 4. 从最不重要的边开始尝试移除（低绝对值）
+        # 4. Try to remove starting from the least important edge (low absolute value)
         for idx in sorted_indices:
             i, j = edge_indices[idx]
             temp_delta = current_delta.clone()
             temp_delta[i, j] = 0
-            temp_delta[j, i] = 0  # 对称处理
+            temp_delta[j, i] = 0  # Symmetric treatment
 
-            # 验证预测是否仍翻转
+            # Verify that the prediction is still flipped
             if self._validate_flip(temp_delta, perturb_layer):
-                current_delta = temp_delta  # 保留移除操作
+                current_delta = temp_delta  # Keep removal
 
         return current_delta
 
@@ -323,10 +323,10 @@ class ACExplainer:
             return output[self.node_idx].argmax() != self.y_pred_orig
 
     def compute_edge_importance(self, delta_A: torch.Tensor) -> torch.Tensor:
-        """计算边重要性分数 (基于梯度敏感度)"""
+        """Calculate the importance score of the edges (based on gradient sensitivity)"""
         self.model.zero_grad()
 
-        # 计算预测损失
+        # Calculate prediction loss
         output = self.model(self.sub_feat)
         # pred_loss = -F.nll_loss(
         #     output[self.node_idx].unsqueeze(0),
@@ -337,11 +337,11 @@ class ACExplainer:
             torch.tensor([self.y_pred_orig], device=self.device)
         )
 
-        # 反向传播获取梯度
+        # Backpropagation to obtain gradients
         pred_loss.backward()
         mask_grad = self.model.get_mask_parameters().grad.abs()
 
-        # 重建全尺寸梯度矩阵
+        # Reconstruct the full-size gradient matrix
         grad_matrix = torch.zeros_like(delta_A)
         edge_idx = 0
         for i in range(self.original_adj.size(0)):

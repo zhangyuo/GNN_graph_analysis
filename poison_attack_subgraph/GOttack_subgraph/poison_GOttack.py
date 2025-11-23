@@ -108,7 +108,7 @@ if __name__ == '__main__':
         target_node, target_gcn = select_nodes(features, adj, labels, idx_train, idx_val, idx_test, device)  # select target nodes according to candidate nodes from test data.
 
         # Orbit attack(1518)
-        surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # 代理损失:gnn model
+        surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # Agency loss:gnn model
         model = OrbitAttack(surrogate, df_orbit, nnodes=adj.shape[0], device=device)  # initialize the attack model
         model = model.to(device)
         miss_percentage = poison_attack(data, model, target_node, budget, features, adj, labels, test_model)

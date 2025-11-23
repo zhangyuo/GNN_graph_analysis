@@ -189,7 +189,7 @@ if __name__ == '__main__':
         pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
     if gcn_layer != 2:
-        # surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # 代理损失:gnn model
+        # surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device) # Agent loss: gnn model
         surrogate = gnn_model
     else:
         surrogate = gnn_model
@@ -229,10 +229,10 @@ if __name__ == '__main__':
         # construct new subgraph: l+1 hop and attack nodes
         new_idx_map_tgt_node = None
         if dataset_name == "ogbn-arxiv":
-            # 1. 提取目标节点的l-hop子图
+            # 1. Extract the l-hop subgraph of the target node
             node_index, edge_index, mapping, _ = k_hop_subgraph(
                 node_idx=target_node,
-                num_hops=gcn_layer + 1,  # 覆盖GCN的感受野
+                num_hops=gcn_layer + 1,  # Cover the receptive field of GCN
                 edge_index=pyg_data.edge_index,
                 relabel_nodes=True,
                 num_nodes=pyg_data.edge_index.max() + 1
@@ -240,14 +240,14 @@ if __name__ == '__main__':
 
             # because of big graph, sampling part of orbit nodes
             df_orbit = df_orbit.loc[df_orbit['two_Orbit_type'] == '1518']
-            df_orbit = df_orbit.sample(n=1000, random_state=102)  # 固定随机种子，结果可复现
+            df_orbit = df_orbit.sample(n=1000, random_state=102)  # Fixed random seed, results can be reproduced
             # df_orbit = pd.DataFrame(df_orbit.to_numpy()[node_index], columns=df_orbit.columns)
             orbit_nodes_series = df_orbit['node_number']
             orbit_nodes = torch.tensor(orbit_nodes_series.astype(int).values, dtype=torch.long,
                                        device=node_index.device)
             new_nodes = torch.cat([node_index, orbit_nodes], dim=0)
             new_nodes = torch.unique(new_nodes, sorted=False)
-            # 记录目标节点在新子图中的索引（用于后续 reference）
+            # Record the index of the target node in the new subgraph (for subsequent reference)
             if isinstance(target_node, torch.Tensor):
                 target_node_val = int(target_node.item())
             else:
@@ -255,50 +255,50 @@ if __name__ == '__main__':
             tgt_pos_mask = (new_nodes == target_node_val).nonzero(as_tuple=True)[0]
             tgt_node_map_new_idx = int(tgt_pos_mask.item()) if tgt_pos_mask.numel() > 0 else None
 
-            # 为了重标号，构建 full->new mapping array（vectorized，避免 Python 循环）
+            # To renumber, build full->new mapping array (vectorized, avoid Python loops)
             num_global_nodes = int(pyg_data.num_nodes) if hasattr(pyg_data, 'num_nodes') else int(pyg_data.x.size(0))
             mapping_array = torch.full((num_global_nodes,), -1, dtype=torch.long, device=new_nodes.device)
             mapping_array[new_nodes] = torch.arange(new_nodes.size(0), dtype=torch.long, device=new_nodes.device)
 
-            # 过滤全图 edge_index：只保留两端都在 new_nodes 的边
+            # Filter the entire graph edge_index: only keep edges with both ends in new_nodes
             global_edge_index = pyg_data.edge_index.to(new_nodes.device)  # [2, E]
 
-            # 建立一个布尔掩码，标记哪些节点在 new_nodes 中
+            # Create a boolean mask marking which nodes are in new_nodes
             node_mask = torch.zeros(num_global_nodes, dtype=torch.bool, device=new_nodes.device)
             node_mask[new_nodes] = True
 
-            # 过滤边：要求两端节点都在 new_nodes 中
+            # Filter edges: require both end nodes to be in new_nodes
             mask = node_mask[global_edge_index[0]] & node_mask[global_edge_index[1]]
             sub_edge_index = global_edge_index[:, mask]
 
-            # 重标号为 [0 .. n_sub-1]
+            # The re-numbering is [0 .. n_sub-1]
             sub_edge_index = mapping_array[sub_edge_index]  # shape [2, E_sub]
-            # 可选：如果你想保证无自环/无重复，可进行 remove_self_loops/ coalesce（视需要）
+            # Optional: If you want to ensure no self-loops/no duplications, you can remove_self_loops/ coalesce (optional)
 
-            # 生成稠密邻接
+            # Generate dense adjacencies
             n_sub = new_nodes.size(0)
             data.adj = edge_index_to_adj(sub_edge_index, n_sub)
 
-            # data.features: features 对应 new_nodes（转换为 scipy csr）
+            # data.features: features corresponds to new_nodes (converted to scipy csr)
             data.features = tensor_to_sparse(pyg_data.x[new_nodes.cpu()])
 
-            # data.labels: numpy array 对应 new_nodes
+            # data.labels: numpy array corresponds to new_nodes
             data.labels = tensor_to_numpy(pyg_data.y[new_nodes.cpu()])
 
-            # 记录新的 mapping（可选），方便从 new-subgraph-index 映射回全图 node id
-            # new_idx_map_tgt_node: 如果你要从新索引找全局 id
+            # Record new mapping (optional) to facilitate mapping back to the full graph node id from new-subgraph-index
+            # new_idx_map_tgt_node: If you want to find the global id from the new index
             new_idx_map_tgt_node = {int(i): int(new_nodes[i].item()) for i in range(n_sub)}
             target_node = tgt_node_map_new_idx
 
-            # 把 df_orbit 的 node_number 转成 tensor
+            # Convert node_number of df_orbit to tensor
             orbit_old_ids = torch.tensor(
                 df_orbit['node_number'].astype(int).values,
                 dtype=torch.long,
                 device=mapping_array.device
             )
-            # 用 mapping_array 查新 ID
+            # Use mapping_array to check new IDs
             orbit_new_ids = mapping_array[orbit_old_ids].cpu().numpy()
-            # 把 df_orbit 里的 node_number 更新为新的索引
+            # Update node_number in df_orbit to the new index
             df_orbit = df_orbit.copy()
             df_orbit['node_number'] = orbit_new_ids
             df_orbit.index = orbit_new_ids
@@ -306,7 +306,7 @@ if __name__ == '__main__':
             node_index_old = node_index.tolist()
             node_index_tensor = torch.tensor(node_index_old, dtype=torch.long, device=mapping_array.device)
 
-            # 映射为新子图 ID
+            # Map to new subgraph ID
             node_index = mapping_array[node_index_tensor].cpu()
 
         # print(len(data.labels))

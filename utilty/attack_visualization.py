@@ -113,8 +113,8 @@ def visualize_restricted_attack_subgraph(
     base_nodes = set(nx.single_source_shortest_path_length(G_pert, target_node, k_hop).keys())
 
     # Merge nodes and control total count
-    candidate_nodes = {target_node} | {n for edge in added_edges for n in edge}  # 起始必须包含目标节点和关键的扰动节点（但排除删除边的情况，因为删除边的末端节点让子图已不连通）
-    visited = {target_node}  # 记录已访问节点
+    candidate_nodes = {target_node} | {n for edge in added_edges for n in edge}  # The start must contain the target node and the key perturbation node (but the case of deleting the edge is excluded, because deleting the end node of the edge makes the subgraph no longer connected)
+    visited = {target_node}  # Record visited nodes
 
     # dist_map = nx.single_source_shortest_path_length(G_pert, target_node)
     # candidate_nodes = sorted(candidate_nodes, key=lambda n: dist_map.get(n, float('inf')))[:max_nodes]
@@ -122,31 +122,31 @@ def visualize_restricted_attack_subgraph(
     # degree_dict = dict(G_pert.degree())
     centrality_dict = nx.degree_centrality(G_pert)
 
-    # 最大堆存储 (-centrality, node) 实现高度节点优先
+    # Max heap storage (-centrality, node) implements high node priority
     heap = []
-    # 初始化：添加当前候选节点的邻居
+    # Initialization: Add neighbors of the current candidate node
     for node in candidate_nodes:
         for neighbor in G_pert.neighbors(node):
             if neighbor not in visited and neighbor in base_nodes:
-                heapq.heappush(heap, (-centrality_dict[neighbor], neighbor))  # 使用中心性作为权重
+                heapq.heappush(heap, (-centrality_dict[neighbor], neighbor))  # Use centrality as weight
 
     while heap and len(candidate_nodes) < max_nodes:
         neg_centrality, current = heapq.heappop(heap)
 
-        if current in visited:  # 避免重复处理
+        if current in visited:  # Avoid duplication of processing
             continue
 
-        # 确保连通性：检查是否有邻居已在候选集
+        # Ensure connectivity: check if any neighbor is already in the candidate set
         if any(neighbor in candidate_nodes for neighbor in G_pert.neighbors(current)):
             candidate_nodes.add(current)
             visited.add(current)
         else:
             continue
 
-        # 添加新节点的未访问邻居
+        # Add unvisited neighbors of new node
         for neighbor in G_pert.neighbors(current):
             if neighbor not in visited and neighbor in base_nodes:
-                heapq.heappush(heap, (-centrality_dict[neighbor], neighbor))  # 继续使用中心性权重
+                heapq.heappush(heap, (-centrality_dict[neighbor], neighbor))  # Continue to use centrality weights
 
     # ===== 3. Build final subgraph =====
     true_subgraph = G_pert.subgraph(candidate_nodes).copy()
@@ -155,7 +155,7 @@ def visualize_restricted_attack_subgraph(
     start_time = time.time()
     print(f"attack subgraph generated in {elapsed:.4f}s!")
 
-    # 增加被删除的边和末端节点，用于可视化
+    # Add deleted edges and end nodes for visualization
     unique_nodes = candidate_nodes | {n for edge in removed_edges for n in edge}
     subgraph = G_pert.subgraph(unique_nodes).copy()
     subgraph.add_edges_from(removed_edges)
@@ -374,7 +374,7 @@ def visualize_attack_subgraph(
     start_time = time.time()
     print(f"attack subgraph generated in {elapsed:.4f}s!")
 
-    # 增加被攻击的边和末端节点，用于可视化
+    # Add attacked edges and end nodes for visualization
     subgraph = nx.Graph()  # Use undirected graph
     # add nodes
     for node in critical_nodes:
@@ -586,37 +586,37 @@ if __name__ == '__main__':
 
     print("ok")
 
-    # # 1 动态交互式可视化（PyVis）
+    # #1 Dynamic interactive visualization (PyVis)
     # from pyvis.network import Network
     #
-    # # 生成交互式HTML
+    # # Generate interactive HTML
     # net = Network(notebook=True, cdn_resources='remote', height="800px")
     # net.from_nx(G_pert)
     # net.show("attacked_graph.html")
 
-    # # 2 特征降维可视化
+    # #2 Visualization of feature dimensionality reduction
     # from sklearn.manifold import TSNE
     #
-    # # 降维特征到2D
+    # # Reduce dimensionality features to 2D
     # tsne = TSNE(n_components=2, random_state=42)
     # feat_2d = tsne.fit_transform(perturbed_features.toarray())
     #
-    # # 绘制特征空间分布
+    # # Draw feature space distribution
     # plt.scatter(feat_2d[:, 0], feat_2d[:, 1], c=labels, cmap=plt.cm.tab10, s=20)
     # plt.colorbar(label="Node Class")
-    # plt.title("对抗样本的节点特征分布 (t-SNE降维)")
+    # plt.title("Node feature distribution of adversarial samples (t-SNE dimensionality reduction)")
 
-    # # 3 攻击强度量化
-    # # 计算扰动比例
+    # #3 Quantification of attack intensity
+    # # Calculate the disturbance ratio
     # n_edges_orig = original_adj.sum() // 2
     # n_edges_pert = perturbed_adj.sum() // 2
     # perturb_ratio = abs(n_edges_pert - n_edges_orig) / n_edges_orig
     #
-    # # 在标题中显示
-    # plt.title(f"攻击修改比例: {perturb_ratio:.2%}", fontsize=14)
+    # # Show in title
+    # plt.title(f"Attack modification ratio: {perturb_ratio:.2%}", fontsize=14)
 
-    # # 4 标签重叠处理
-    # # 通过 nx.draw_networkx_labels 的 font_size 和 alpha 参数调整标签密度，或仅显示度中心性高的节点标签
+    # #4 Label overlap processing
+    # # Adjust the label density through the font_size and alpha parameters of nx.draw_networkx_labels, or only display node labels with high degree centrality
     # degrees = dict(G_pert.degree())
     # high_degree_nodes = [n for n in G_pert.nodes() if degrees[n] > 5]
     # labels_subset = {n: label_dict[n] for n in high_degree_nodes}

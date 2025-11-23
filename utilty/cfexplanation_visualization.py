@@ -75,7 +75,7 @@ def visualize_cfexp_subgraph(
     start_time = time.time()
     print(f"attack subgraph generated in {elapsed:.4f}s!")
 
-    # 增加被攻击的边和末端节点，用于可视化
+    # Add attacked edges and end nodes for visualization
     reversed_mapping = {idx: orig_id for orig_id, idx in full_mapping.items()}
     subgraph = nx.Graph()  # Use undirected graph
     # add nodes

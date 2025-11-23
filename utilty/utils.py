@@ -219,8 +219,8 @@ def accuracy(pred, labels):
     """计算准确率"""
     pred_labels = torch.tensor(pred, dtype=int)
     labels = torch.tensor(labels, dtype=int)
-    correct = (pred_labels == labels).float().sum()  # 统计正确预测数
-    return correct / len(labels)  # 返回准确率
+    correct = (pred_labels == labels).float().sum()  # Statistics of correct predictions
+    return correct / len(labels)  # return accuracy
 
 
 # def compute_deg_diff(orig_sub_adj, edited_sub_adj):
@@ -262,20 +262,20 @@ def clustering_coefficient(adj_tensor: torch.Tensor, eps: float = 1e-8) -> torch
     使用 PyTorch 近似计算无向图的局部聚类系数（向量化实现）。
     注意：这是对传统聚类系数的一种近似，主要用于训练和损失计算。
     """
-    # 计算每个节点的度
+    # Calculate the degree of each node
     degrees = torch.sum(adj_tensor, dim=1)
 
-    # 计算 A²，其对角线元素是节点邻居之间存在的路径数（每条边被计算两次）
+    # Computes A², whose diagonal elements are the number of paths that exist between a node's neighbors (each edge is calculated twice)
     A_squared = torch.mm(adj_tensor, adj_tensor)
-    # 节点i的邻居之间实际存在的边数近似为 (A_squared[i, i] - degrees[i]) / 2.0
-    # 减 degrees[i] 是因为邻接矩阵对角线（自环）也被计算在内，通常需要减去
-    # 这里简化处理，直接使用 A_squared 的对角线
-    triangles = torch.diag(A_squared) / 2.0  # 更精确的计算可能需要调整
+    # The actual number of edges between the neighbors of node i is approximately (A_squared[i, i] - degrees[i]) / 2.0
+    # Subtract degrees[i] because the adjacency matrix diagonal (self-loop) is also counted and usually needs to be subtracted
+    # Simplify the process here and use the diagonal of A_squared directly.
+    triangles = torch.diag(A_squared) / 2.0  # More precise calculations may require adjustments
 
-    # 计算可能存在的最大边数 k*(k-1)/2
+    # Calculate the maximum possible number of edges k*(k-1)/2
     max_possible_edges = degrees * (degrees - 1) / 2.0
 
-    # 避免除以零：对于度小于2的节点，聚类系数设为0
+    # Avoid dividing by zero: for nodes with degree less than 2, the clustering coefficient is set to 0
     # clustering_coeffs = torch.zeros_like(degrees, dtype=torch.float32)
     # valid_mask = (degrees > 1)
     # clustering_coeffs[valid_mask] = triangles[valid_mask] / max_possible_edges[valid_mask]
@@ -300,12 +300,12 @@ class BAShapesDataset(Dataset):
         self.num_nodes = pyg_data.num_nodes
         self.num_features = pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         self.adj = self.edge_index_to_adj(pyg_data.edge_index)
         self.features = efficient_tensor_to_csr(pyg_data.x)
         self.labels = pyg_data.y.numpy()
 
-        # 创建训练/验证/测试掩码
+        # Create training/validation/test masks
         # if test_model == "GAT":
         #     transform = RandomNodeSplit(split="train_rest", num_val=140, num_test=200)
         #     data = transform(pyg_data)
@@ -340,12 +340,12 @@ class TreeCyclesDataset(Dataset):
         self.num_nodes = pyg_data.num_nodes
         self.num_features = pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         self.adj = self.edge_index_to_adj(pyg_data.edge_index)
         self.features = efficient_tensor_to_csr(pyg_data.x)
         self.labels = pyg_data.y.numpy()
 
-        # 创建训练/验证/测试掩码
+        # Create training/validation/test masks
         self.idx_train = self._create_mask(0.2)
         self.idx_val = self._create_mask(0.1, exclude=self.idx_train)
         self.idx_test = self._create_mask(0.7, exclude=np.concatenate([self.idx_train, self.idx_val]))
@@ -372,12 +372,12 @@ class LoanDecisionDataset(Dataset):
         self.num_nodes = pyg_data.num_nodes
         self.num_features = pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         self.adj = self.edge_index_to_adj(pyg_data.edge_index)
         self.features = efficient_tensor_to_csr(pyg_data.x)
         self.labels = pyg_data.y.numpy()
 
-        # 创建训练/验证/测试掩码
+        # Create training/validation/test masks
         self.idx_train = self._create_mask(0.2)
         self.idx_val = self._create_mask(0.1, exclude=self.idx_train)
         self.idx_test = self._create_mask(0.7, exclude=np.concatenate([self.idx_train, self.idx_val]))
@@ -405,7 +405,7 @@ class ChameleonDataset(Dataset):
         self.num_nodes = self.pyg_data.num_nodes
         self.num_features = self.pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         edge_set = set((u.item(), v.item()) for u, v in self.pyg_data.edge_index.t())
         is_symmetric = all((v, u) in edge_set for (u, v) in edge_set)
         print(f"Edge index is symmetric: {is_symmetric}")
@@ -419,7 +419,7 @@ class ChameleonDataset(Dataset):
         self.features = efficient_tensor_to_csr(self.pyg_data.x)
         self.labels = self.pyg_data.y.view(-1).long().numpy()
 
-        # 创建训练/验证/测试掩码
+        # Create training/validation/test masks
         self.idx_train = self._create_mask(0.50)
         self.idx_val = self._create_mask(0.25, exclude=self.idx_train)
         self.idx_test = self._create_mask(0.25, exclude=np.concatenate([self.idx_train, self.idx_val]))
@@ -433,7 +433,7 @@ class ChameleonDataset(Dataset):
         return adj.tocsr()
 
     def _create_mask(self, ratio, exclude=None):
-        """创建数据分割掩码"""
+        """Create data segmentation mask"""
         valid_nodes = np.arange(self.num_nodes)
         if exclude is not None:
             valid_nodes = np.setdiff1d(valid_nodes, exclude)
@@ -447,7 +447,7 @@ class OGBNArxivDataset(Dataset):
         self.num_nodes = self.pyg_data.num_nodes
         self.num_features = self.pyg_data.num_node_features
 
-        # 提取关键数据组件
+        # Extract key data components
         edge_set = set((u.item(), v.item()) for u, v in self.pyg_data.edge_index.t())
         is_symmetric = all((v, u) in edge_set for (u, v) in edge_set)
         print(f"Edge index is symmetric: {is_symmetric}")
@@ -460,7 +460,7 @@ class OGBNArxivDataset(Dataset):
         self.features = efficient_tensor_to_csr(self.pyg_data.x)
         self.labels = self.pyg_data.y.view(-1).long().numpy()
 
-        # 创建训练0.54-90941/验证0.18-29799/测试掩码0.28-48302
+        # Create training 0.54-90941/validation 0.18-29799/test mask 0.28-48302
         split_idx = ogbn_arxiv_data.get_idx_split()
         self.idx_train = split_idx["train"]
         self.idx_val = split_idx["valid"]
@@ -489,16 +489,16 @@ class OGBNArxivDataset(Dataset):
 
 
 def efficient_tensor_to_csr(features):
-    # 获取Tensor数据
+    # Get Tensor data
     features_np = features.detach().cpu().numpy()
 
-    # 直接创建CSR矩阵
+    # Create CSR matrix directly
     return sp.csr_matrix(features_np)
 
 
 # 1. adj: PyG edge_index -> scipy.sparse
 def edge_index_to_adj(edge_index, num_nodes):
-    # COO 格式
+    # COO format
     row, col = edge_index
     data = torch.ones(row.size(0))
     adj = sp.coo_matrix(

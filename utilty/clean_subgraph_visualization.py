@@ -68,22 +68,22 @@ def visualize_restricted_clean_subgraph(
 
     # exclude isolated nodes
     subgraph = G_orig.subgraph(candidate_nodes).copy()
-    # 检查连通性，同时强制保留关键节点
+    # Check connectivity while forcing critical nodes to be preserved
     if not nx.is_connected(subgraph):
-        # 获取所有连通分量，按大小排序
+        # Get all connected components, sorted by size
         connected_components = sorted(nx.connected_components(subgraph), key=len, reverse=True)
 
-        # 步骤1：优先保留含关键节点的连通分量
+        # Step 1: Prioritize connected components containing key nodes
         critical_components = set()
         for comp in connected_components:
             if any(node in comp for node in critical_nodes):
-                critical_components |= comp  # 合并含关键节点的分量
+                critical_components |= comp  # Merge components containing key nodes
 
-        # 步骤2：若关键节点分散，合并其所在分量（确保连通性）
+        # Step 2: If key nodes are scattered, merge their components (to ensure connectivity)
         if critical_components:
             candidate_nodes = critical_components
         else:
-            # 若无关键节点，默认取最大分量（安全回退）
+            # If there is no critical node, the maximum component is taken by default (safe fallback)
             candidate_nodes = connected_components[0]
 
     # ===== 3. Build final subgraph =====

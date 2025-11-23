@@ -27,19 +27,19 @@ class GATNet(nn.Module):
         self.num_layers = num_layers
         self.dropout = dropout
 
-        # 第一层
+        # first floor
         self.layers.append(GATConv(in_channels, hidden_channels, heads=heads, dropout=dropout, edge_dim=1))
 
-        # 中间层
+        # middle layer
         for _ in range(num_layers - 2):
             self.layers.append(
                 GATConv(hidden_channels * heads, hidden_channels, heads=heads, dropout=dropout, edge_dim=1))
 
-        # 最后一层
+        # last layer
         self.layers.append(
             GATConv(hidden_channels * heads, out_channels, heads=1, concat=False, dropout=dropout, edge_dim=1))
 
-        # 设备
+        # equipment
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
@@ -47,7 +47,7 @@ class GATNet(nn.Module):
 
         self.to(self.device)
 
-        # 优化器
+        # optimizer
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
 
     def forward(self, x, edge_index, edge_weight=None):
@@ -60,7 +60,7 @@ class GATNet(nn.Module):
             x = conv(x, edge_index, edge_attr=edge_attr)
             x = F.relu(x)  # BA-SHAPES on GAT  use elu, other use relu
             x = F.dropout(x, p=self.dropout, training=self.training)
-        # 最后一层
+        # last layer
         x = self.layers[-1](x, edge_index, edge_attr=edge_attr)
         return F.log_softmax(x, dim=1)
 

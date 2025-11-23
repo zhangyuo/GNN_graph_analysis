@@ -52,10 +52,10 @@ pyg_gcn = GCNtoPYG(gnn_model, device, features, labels)
 explainer = Explainer(
     model=pyg_gcn,
     algorithm=GNNExplainer(
-        epochs=200,  # 减少训练轮次
-        # lr=0.1,  # 提高学习率
-        log=False,  # 禁用日志
-        # coeffs={'edge_size': 0.005, 'node_feat_size': 0.1}  # 添加正则化防止梯度爆炸
+        epochs=200,  # Reduce training rounds
+        # lr=0.1, # Increase learning rate
+        log=False,  # Disable logging
+        # coeffs={'edge_size': 0.005, 'node_feat_size': 0.1} # Add regularization to prevent gradient explosion
     ),
     explanation_type='model',
     node_mask_type='attributes',
@@ -79,16 +79,16 @@ subset, edge_index_sub, mapping, _ = k_hop_subgraph(
     num_nodes=pyg_data.num_nodes
 )
 
-# 创建子图特征
+# Create subgraph features
 x_sub = pyg_data.x[subset]
 
-# 全节点映射字典
+# Full node mapping dictionary
 full_mapping = {int(orig_id): idx for idx, orig_id in enumerate(subset.tolist())}
 
-# 目标节点的新ID
-target_new_id = full_mapping[target_node]  # 若 node_idx 是单个节点
+# The new ID of the target node
+target_new_id = full_mapping[target_node]  # If node_idx is a single node
 
-# 执行解释
+# Execution explanation
 explanation = explainer(
     x=x_sub,
     edge_index=edge_index_sub,

@@ -65,13 +65,13 @@ def generate_acexplainer_subgraph(df_orbit,
                                   dataset_name: str = "cora",
                                   output_idx=None):
     """
-    生成AC-Explainer解释
+    Generate AC-Explainer explanation
     """
     start = time.time()
-    # 1. 提取目标节点的l-hop子图
+    # 1. Extract the l-hop subgraph of the target node
     node_index, edge_index, mapping, _ = k_hop_subgraph(
         node_idx=target_node,
-        num_hops=gcn_layer + 1,  # 覆盖GCN的感受野
+        num_hops=gcn_layer + 1,  # Cover the receptive field of GCN
         edge_index=pyg_data.edge_index,
         relabel_nodes=True,
         num_nodes=pyg_data.edge_index.max() + 1
@@ -82,13 +82,13 @@ def generate_acexplainer_subgraph(df_orbit,
     if dataset_name == "ogbn-arxiv":
         # because of big graph, sampling part of orbit nodes
         df_orbit = df_orbit.loc[df_orbit['two_Orbit_type'] == '1518']
-        df_orbit = df_orbit.sample(n=1000, random_state=102)  # 固定随机种子，结果可复现
+        df_orbit = df_orbit.sample(n=1000, random_state=102)  # Fixed random seed, results can be reproduced
         # df_orbit = pd.DataFrame(df_orbit.to_numpy()[node_index], columns=df_orbit.columns)
         orbit_nodes_series = df_orbit['node_number']
         orbit_nodes = torch.tensor(orbit_nodes_series.astype(int).values, dtype=torch.long, device=node_index.device)
         new_nodes = torch.cat([node_index, orbit_nodes], dim=0)
         new_nodes = torch.unique(new_nodes, sorted=False)
-        # 记录目标节点在新子图中的索引（用于后续 reference）
+        # Record the index of the target node in the new subgraph (for subsequent reference)
         if isinstance(target_node, torch.Tensor):
             target_node_val = int(target_node.item())
         else:
@@ -96,50 +96,50 @@ def generate_acexplainer_subgraph(df_orbit,
         tgt_pos_mask = (new_nodes == target_node_val).nonzero(as_tuple=True)[0]
         tgt_node_map_new_idx = int(tgt_pos_mask.item()) if tgt_pos_mask.numel() > 0 else None
 
-        # 为了重标号，构建 full->new mapping array（vectorized，避免 Python 循环）
+        # To renumber, build full->new mapping array (vectorized, avoid Python loops)
         num_global_nodes = int(pyg_data.num_nodes) if hasattr(pyg_data, 'num_nodes') else int(pyg_data.x.size(0))
         mapping_array = torch.full((num_global_nodes,), -1, dtype=torch.long, device=new_nodes.device)
         mapping_array[new_nodes] = torch.arange(new_nodes.size(0), dtype=torch.long, device=new_nodes.device)
 
-        # 过滤全图 edge_index：只保留两端都在 new_nodes 的边
+        # Filter the entire graph edge_index: only keep edges with both ends in new_nodes
         global_edge_index = pyg_data.edge_index.to(new_nodes.device)  # [2, E]
 
-        # 建立一个布尔掩码，标记哪些节点在 new_nodes 中
+        # Create a boolean mask marking which nodes are in new_nodes
         node_mask = torch.zeros(num_global_nodes, dtype=torch.bool, device=new_nodes.device)
         node_mask[new_nodes] = True
 
-        # 过滤边：要求两端节点都在 new_nodes 中
+        # Filter edges: require both end nodes to be in new_nodes
         mask = node_mask[global_edge_index[0]] & node_mask[global_edge_index[1]]
         sub_edge_index = global_edge_index[:, mask]
 
-        # 重标号为 [0 .. n_sub-1]
+        # The re-numbering is [0 .. n_sub-1]
         sub_edge_index = mapping_array[sub_edge_index]  # shape [2, E_sub]
-        # 可选：如果你想保证无自环/无重复，可进行 remove_self_loops/ coalesce（视需要）
+        # Optional: If you want to ensure no self-loops/no duplications, you can remove_self_loops/ coalesce (optional)
 
-        # 生成稠密邻接
+        # Generate dense adjacencies
         n_sub = new_nodes.size(0)
         data.adj = edge_index_to_adj(sub_edge_index, n_sub)
 
-        # data.features: features 对应 new_nodes（转换为 scipy csr）
+        # data.features: features corresponds to new_nodes (converted to scipy csr)
         data.features = tensor_to_sparse(pyg_data.x[new_nodes.cpu()])
 
-        # data.labels: numpy array 对应 new_nodes
+        # data.labels: numpy array corresponds to new_nodes
         data.labels = tensor_to_numpy(pyg_data.y[new_nodes.cpu()])
 
-        # 记录新的 mapping（可选），方便从 new-subgraph-index 映射回全图 node id
-        # new_idx_map_tgt_node: 如果你要从新索引找全局 id
+        # Record new mapping (optional) to facilitate mapping back to the full graph node id from new-subgraph-index
+        # new_idx_map_tgt_node: If you want to find the global id from the new index
         new_idx_map_tgt_node = {int(i): int(new_nodes[i].item()) for i in range(n_sub)}
         target_node = tgt_node_map_new_idx
 
-        # 把 df_orbit 的 node_number 转成 tensor
+        # Convert node_number of df_orbit to tensor
         orbit_old_ids = torch.tensor(
             df_orbit['node_number'].astype(int).values,
             dtype=torch.long,
             device=mapping_array.device
         )
-        # 用 mapping_array 查新 ID
+        # Use mapping_array to check new IDs
         orbit_new_ids = mapping_array[orbit_old_ids].cpu().numpy()
-        # 把 df_orbit 里的 node_number 更新为新的索引
+        # Update node_number in df_orbit to the new index
         df_orbit = df_orbit.copy()
         df_orbit['node_number'] = orbit_new_ids
         df_orbit.index = orbit_new_ids
@@ -147,10 +147,10 @@ def generate_acexplainer_subgraph(df_orbit,
         node_index_old = node_index.tolist()
         node_index_tensor = torch.tensor(node_index_old, dtype=torch.long, device=mapping_array.device)
 
-        # 映射为新子图 ID
+        # Map to new subgraph ID
         node_index = mapping_array[node_index_tensor].cpu()
 
-    # 2. 获取攻击节点并映射到原始图索引
+    # 2. Get the attack node and map it to the original graph index
     if attack_method == "Nettack":
         attack_model = Nettack(surrogate, nnodes=data.adj.shape[0], attack_structure=True,
                                attack_features=False)  # initialize the attack model
@@ -173,24 +173,24 @@ def generate_acexplainer_subgraph(df_orbit,
 
     node_index = node_index.tolist()
 
-    # 3. 构建扩展节点集合 (l-hop节点 + 攻击节点)
+    # 3. Build an extended node set (l-hop node + attack node)
     extended_nodes = list(set(node_index + attack_nodes))
     extended_nodes.sort()
 
-    # 4. 高效创建扩展子图的邻接矩阵和原始掩码矩阵
+    # 4. Efficiently create the adjacency matrix and original mask matrix of the extended subgraph
     # extended_adj, original_adj_mask = networkx_create_extended_adj(extended_nodes, pyg_data.edge_index)
     adj_dense = data.adj.toarray()
     extended_adj = adj_dense[np.ix_(extended_nodes, extended_nodes)]
     extended_adj = torch.tensor(extended_adj, dtype=torch.float, requires_grad=True)
 
-    # 5. 提取扩展子图的特征
+    # 5. Extract features of extended subgraphs
     if dataset_name == "ogbn-arxiv":
         extended_global_nodes = [new_idx_map_tgt_node[i] for i in extended_nodes]
         extended_feat = pyg_data.x[extended_global_nodes]
     else:
         extended_feat = pyg_data.x[extended_nodes]
 
-    # 6. 找到目标节点在扩展子图中的新索引
+    # 6. Find the new index of the target node in the extended subgraph
     target_node_idx = extended_nodes.index(target_node)
     node_dict = {int(orig_id): idx for idx, orig_id in enumerate(extended_nodes)}
     if dataset_name == "ogbn-arxiv":
@@ -223,7 +223,7 @@ def generate_acexplainer_subgraph(df_orbit,
     #     norm_sub_adj = normalize_adj(extended_adj)
     #     print("Output original model, sub adj: {}".format(gnn_model.forward(extended_feat, norm_sub_adj)[target_node_idx]))
 
-    # 7. 创建解释器
+    # 7. Create an interpreter
     if dataset_name == "ogbn-arxiv":
         y_pred_orig = output.argmax(dim=1)[output_idx.index(target_node_val)]
     else:
@@ -265,14 +265,14 @@ def generate_acexplainer_subgraph(df_orbit,
         dataset_name=dataset_name
     )
 
-    # 8. 训练解释器
+    # 8. Training the interpreter
     print("Start cf generating!")
     result = explainer.explain()
     print("Finish cf generating!")
 
     time_cost = time.time() - start
 
-    # 9. 映射回原始图索引
+    # 9. Map back to original graph index
     added_edges = []
     removed_edges = []
 
@@ -280,11 +280,11 @@ def generate_acexplainer_subgraph(df_orbit,
     delta_A = result["delta_A"]
     # for i in range(delta_A.size(0)):
     #     for j in range(i + 1, delta_A.size(1)):
-    #         if delta_A[i, j] > TAU_PLUS and extended_adj[i, j] == 0:  # 添加的边
+    #         if delta_A[i, j] > TAU_PLUS and extended_adj[i, j] == 0: # Added edges
     #             orig_i = extended_nodes[i]
     #             orig_j = extended_nodes[j]
     #             added_edges.append((orig_i, orig_j))
-    #         elif delta_A[i, j] < TAU_MINUS and extended_adj[i, j] == 1:  # 删除的边
+    #         elif delta_A[i, j] < TAU_MINUS and extended_adj[i, j] == 1: # Delete edges
     #             orig_i = extended_nodes[i]
     #             orig_j = extended_nodes[j]
     #             removed_edges.append((orig_i, orig_j))
@@ -351,9 +351,9 @@ def generate_acexplainer_subgraph(df_orbit,
 
 
 def get_attack_nodes(dataset_name, attack_model, df_orbit, target_node, data, method="GOttack", top_t=10):
-    """获取攻击节点列表"""
+    """Obtain the list of attack nodes"""
     if method == "GOttack":
-        # 实现GOttack攻击方法，返回高影响力节点
+        # Implement the GOttack attack method and return high-influence nodes
         # 1. Feature Similarity > 0.1
         matching_index = df_orbit.index[df_orbit['two_Orbit_type'] == '1518'].tolist()
         if len(matching_index) < top_t:
@@ -399,28 +399,28 @@ def get_attack_nodes(dataset_name, attack_model, df_orbit, target_node, data, me
 
         return attack_nodes
     else:
-        # 其他攻击方法
-        return list(range(top_t))  # 简化返回
+        # Other attack methods
+        return list(range(top_t))  # Simplified return
 
 
 def has_edge(edge_index, node_i, node_j):
-    """检查两个节点之间是否存在边"""
+    """Check whether there is an edge between the two nodes"""
     edges = edge_index.t().tolist()
     return [node_i, node_j] in edges or [node_j, node_i] in edges
 
 
 def networkx_create_extended_adj(extended_nodes, edge_index):
     """
-    使用NetworkX高效创建扩展邻接矩阵
+    Efficiently create an extended adjacency matrix using NetworkX
     """
-    # 创建NetworkX图对象
+    # Create NetworkX diagram object
     G = nx.Graph()
 
-    # 添加所有扩展节点
+    # Add all extension nodes
     G.add_nodes_from(extended_nodes)
 
-    # 添加边
-    # 过滤出只包含扩展节点的边
+    # Add edge
+    # Filter out only edges containing extended nodes
     node_to_idx = {node: idx for idx, node in enumerate(extended_nodes)}
     filtered_edges = []
     for i in range(edge_index.size(1)):
@@ -431,13 +431,13 @@ def networkx_create_extended_adj(extended_nodes, edge_index):
     # edges = edge_index.t().tolist()
     G.add_edges_from(filtered_edges)
 
-    # 生成邻接矩阵
+    # Generate adjacency matrix
     adj_matrix = nx.adjacency_matrix(G, nodelist=extended_nodes)
 
-    # 转换为PyTorch张量
+    # Convert to PyTorch tensor
     extended_adj = torch.tensor(adj_matrix.todense(), dtype=torch.float)
 
-    # 原始掩码矩阵与邻接矩阵相同
+    # The original mask matrix is the same as the adjacency matrix
     original_adj_mask = extended_adj.clone()
 
     return extended_adj, original_adj_mask
@@ -445,13 +445,12 @@ def networkx_create_extended_adj(extended_nodes, edge_index):
 
 def sample_subgraph_edges_by_hop(edge_index, target_node, hop_neighbors={1: 10, 2: 5}):
     """
-    使用 NeighborSampler 替代手写采样函数
-    返回采样后的 sampled_edge_index 和 sampled_nodes
-    edge_index: [2, num_edges]
-    target_node: int，目标节点编号
-    hop_neighbors: dict {hop层: 每层采样邻居数}
+    Replace the manually written sampling function with NeighborSampler
+    Return the sampled_edge_index and sampled_nodes after sampling edge_index: [2, num_edges]
+    target_node: int, the identifier of the target node
+    hop_neighbors: dictionary {hop layer: the number of sampled neighbors at each layer}
     """
-    # 按 hop 顺序生成 sizes
+    # Generate sizes in hop order
     max_hop = max(hop_neighbors.keys())
     sizes = [hop_neighbors.get(h + 1, 0) for h in range(max_hop)]
 
@@ -474,12 +473,12 @@ def sample_subgraph_edges_by_hop(edge_index, target_node, hop_neighbors={1: 10, 
         else:
             sampled_edge_index = torch.empty((2, 0), dtype=torch.long)
             sampled_nodes = n_id
-        break  # 只取目标节点 batch
+        break  # Only take target node batch
 
-    # 保证 sampled_nodes 是一维
+    # Ensure sampled_nodes is one-dimensional
     sampled_nodes = sampled_nodes.view(-1)
 
-    # 保证目标节点在子图中
+    # Ensure that the target node is in the subgraph
     target_node_tensor = torch.tensor([target_node], dtype=sampled_nodes.dtype, device=sampled_nodes.device)
     if (sampled_nodes == target_node_tensor).sum() == 0:
         sampled_nodes = torch.cat([sampled_nodes, target_node_tensor])
@@ -518,19 +517,19 @@ def evaluate_test_data(gnn_model, data, pyg_data, gcn_layer):
         # if sampled_edge_index is None or sampled_nodes is None:
         #     continue
 
-        # 子图特征 & 标签
+        # Subgraph features & labels
         x_sub = pyg_data.x[node_index].to(device)
 
-        # 子图邻接矩阵 (dense)
+        # Subgraph adjacency matrix (dense)
         sub_adj = to_dense_adj(sub_edge_index, max_num_nodes=x_sub.size(0)).squeeze(0).to(device)
         norm_sub_adj = normalize_adj(sub_adj)
 
-        # 前向传播
+        # forward propagation
         out = gnn_model(x_sub, norm_sub_adj)
 
-        # mapping 是原始 node_id 在子图中的位置
+        # mapping is the position of the original node_id in the subgraph
         # mapping = (sampled_nodes == target_node).nonzero(as_tuple=True)[0]
-        logit = out[mapping]  # 单节点预测
+        logit = out[mapping]  # Single node prediction
         logits.append(logit.squeeze(0).cpu())
 
     output = torch.stack(logits, dim=0)  # [num_test_nodes, num_classes]
@@ -680,7 +679,7 @@ if __name__ == '__main__':
         pre_output = gnn_model.forward(torch.tensor(features.toarray()), edge_index, edge_weight=edge_weight)
 
     if gcn_layer != 2:
-        # surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device)  # 代理损失:gnn model
+        # surrogate = set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=device) # Agent loss: gnn model
         surrogate = gnn_model
     else:
         surrogate = gnn_model

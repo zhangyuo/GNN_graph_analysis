@@ -33,29 +33,29 @@ def generate_pgexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_dat
 
     sub_labels = pyg_data.y[subset]
 
-    # 创建空邻接矩阵
+    # Create an empty adjacency matrix
     num_nodes = edge_index_sub.max() + 1
     sub_adj = np.zeros((num_nodes, num_nodes), dtype=np.float32)
 
-    # 填充邻接矩阵
+    # Fill adjacency matrix
     for i in range(edge_index_sub.shape[1]):
         src, dst = edge_index_sub[:, i]
-        # 无向图设置双向连接
+        # Undirected graph sets up two-way connection
         sub_adj[src, dst] = 1
         sub_adj[dst, src] = 1
     sub_adj = torch.tensor(sub_adj)
 
-    # 创建子图特征
+    # Create subgraph features
     x_sub = pyg_data.x[subset]
 
-    # 全节点映射字典
+    # Full node mapping dictionary
     full_mapping = {int(orig_id): idx for idx, orig_id in enumerate(subset.tolist())}
 
-    # 目标节点的新ID
-    target_new_id = full_mapping[target_node]  # 若 node_idx 是单个节点
+    # The new ID of the target node
+    target_new_id = full_mapping[target_node]  # If node_idx is a single node
 
     if test_model == "GCN":
-        # 执行解释
+        # Execution explanation
         explanation = explainer(
             x=x_sub,
             edge_index=edge_index_sub,
@@ -93,14 +93,14 @@ def generate_pgexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_dat
     edge_importance = edge_mask[edge_mask > threshold].detach().cpu().numpy()
     edge_index = explanation.edge_index[:, edge_mask > threshold].cpu().numpy()
 
-    # 1. 将边索引和重要性值组合成元组列表
+    # 1. Combine edge index and importance value into a list of tuples
     edge_data = [(edge_index[:, i], edge_importance[i]) for i in range(edge_importance.shape[0])]
 
-    # 2. 按重要性值降序排序
+    # 2. Sort by importance value in descending order
     sorted_edge_data = sorted(edge_data, key=lambda x: x[1], reverse=True)
 
-    # 3. 分离出排序后的边索引和重要性值
-    sorted_edge_index = np.array([data[0] for data in sorted_edge_data]).T  # 转置回(2, N)格式
+    # 3. Separate the sorted edge index and importance value
+    sorted_edge_index = np.array([data[0] for data in sorted_edge_data]).T  # Transpose back to (2, N) format
     sorted_edge_importance = np.array([data[1] for data in sorted_edge_data])
 
     cf_adj = sub_adj.clone()
@@ -116,8 +116,8 @@ def generate_pgexplainer_cf_subgraph(test_model, target_node, gcn_layer, pyg_dat
     max_edits = budget
     # if dataset_name in ["BA-SHAPES", "TREE-CYCLES"]:
     #     max_edits = 6
-    # 4. 遍历边索引，根据重要性降序分别删除对应，判断预测是否翻转
-    for index, edge in enumerate(sorted_edge_index.T):  # 转置后每行代表一条边
+    # 4. Traverse the edge index, delete the corresponding ones in descending order of importance, and determine whether the prediction is flipped.
+    for index, edge in enumerate(sorted_edge_index.T):  # After transposition, each row represents an edge.
         u, v = edge
         cf_adj[u][v] = 0
         cf_adj[v][u] = 0

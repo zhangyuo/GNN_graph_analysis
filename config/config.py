@@ -9,16 +9,16 @@
 # @Desc     :
 """
 # baseline model
-TEST_MODEL = "GAT"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
+TEST_MODEL = "GCN"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
 
 # dataset
-DATA_NAME = "Loan-Decision"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "chameleon", "ogbn-arxiv"]
+DATA_NAME = "BA-SHAPES"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "chameleon", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]
 
 # random seed
-SEED_NUM = 104  # first experiment is 102, 103, 104
+SEED_NUM = 102  # first experiment is 102, 103, 104
 
 ################ Explainer parameters ################
 EXPLANATION_TYPE = 'counterfactual'  # ['instance-level', 'class-level', 'counterfactual']

@@ -66,9 +66,9 @@ pip install deeprobust==0.2.11
 
 ### Usage
 
-1. Generate counterfactual and factual explanations (ATEX-CF, CF-GNNExplainer, INDUCE, C2Explainer, GNNExplainer, PGExplainer) [counterfactual_explanation_subgraph](counterfactual_explanation_subgraph)
+1. Generate counterfactual and factual explanations (ATEX-CF, CF-GNNExplainer, INDUCE, C2Explainer, CFF, NSEG, GNNExplainer, PGExplainer) [counterfactual_explanation_subgraph](counterfactual_explanation_subgraph)
 2. Generate adversarial attack subgraph (Nettack, GOttack) [evasion_attack_subgraph](evasion_attack_subgraph)
 3. Model train: [gnn_model_train.py](gnn_model_train.py), [gcn_arxiv_batch.py](gcn_arxiv_batch.py)
 4. GNN analysis: [gnn_graph_generate.py](gnn_graph_generate.py), [gnn_graph_analysis.py](gnn_graph_analysis.py)
-5. Explanations evaluation: [evaluator_ac_gnnexplainer.py](evaluator_ac_gnnexplainer.py), [evaluator_c2explainer.py](evaluator_c2explainer.py), [evaluator_induce.py](counterfactual_explanation_subgraph%2FINDUCE_subgraph%2Fcora_test.py), [evaluator_cf_gnnexplainer.py](evaluator_cf_gnnexplainer.py), [evaluator_cf_gnnexplainer_budget.py](evaluator_cf_gnnexplainer_budget.py), [evaluator_gnnexplainer.py](evaluator_gnnexplainer.py), [evaluator_pgexplainer.py](evaluator_pgexplainer.py), [evaluator_Nettack.py](evaluator_Nettack.py), [evaluator_GOttack.py](evaluator_GOttack.py)
+5. Explanations evaluation: [evaluator_ac_gnnexplainer.py](evaluator_ac_gnnexplainer.py), [evaluator_c2explainer.py](evaluator_c2explainer.py), [evaluator_induce.py](counterfactual_explanation_subgraph%2FINDUCE_subgraph%2Fcora_test.py), [evaluator_cff.py](evaluator_cff.py), [evaluuator_nseg.py](evaluuator_nseg.py), [evaluator_cf_gnnexplainer.py](evaluator_cf_gnnexplainer.py), [evaluator_cf_gnnexplainer_budget.py](evaluator_cf_gnnexplainer_budget.py), [evaluator_gnnexplainer.py](evaluator_gnnexplainer.py), [evaluator_pgexplainer.py](evaluator_pgexplainer.py), [evaluator_Nettack.py](evaluator_Nettack.py), [evaluator_GOttack.py](evaluator_GOttack.py)
 6. Parameters setting: [config](config)

@@ -12,7 +12,7 @@
 TEST_MODEL = "GCN"  # ["GCN", "GraphTransformer", "GraphConv", "GAT"]
 
 # dataset
-DATA_NAME = "BA-SHAPES"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "chameleon", "ogbn-arxiv"]
+DATA_NAME = "ogbn-arxiv"  # ["cora", "BA-SHAPES", "TREE-CYCLES", "Loan-Decision", "chameleon", "ogbn-arxiv"]
 
 # running device
 DEVICE = 'cpu'  # ["cpu", "gpu"]

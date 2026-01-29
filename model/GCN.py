@@ -71,7 +71,6 @@ class GCN_extend(GCN):
         return F.nll_loss(pred, label)
 
     def fit_extended(self, features, adj, labels, idx_train, idx_val, train_iters=GCN_EPOCHS, patience=500):
-        """扩展训练方法（使用自定义优化器）"""
         self.train()
         optimizer = torch.optim.Adam(
             self.parameters(),
@@ -230,10 +229,10 @@ class PyGCompatibleGCN(nn.Module):
 
 
 def transfer_weights(dr_model, pyg_model, gcn_layer):
-    print("PyG模型结构验证:")
-    print(f"conv1.lin存在: {hasattr(pyg_model.conv1, 'lin')}")  # Should be True
-    print(f"conv1.lin.weight形状: {pyg_model.conv1.lin.weight.shape}")
-    print(f"DeepRobust gc1.weight形状: {dr_model.gc1.weight.shape}")
+    print("PyG model verification:")
+    print(f"conv1.lin exists: {hasattr(pyg_model.conv1, 'lin')}")  # Should be True
+    print(f"conv1.lin.weight shape: {pyg_model.conv1.lin.weight.shape}")
+    print(f"DeepRobust gc1.weight shape: {dr_model.gc1.weight.shape}")
 
     # First layer weight transposition (1433,16) -> (16,1433)
     pyg_model.conv1.lin.weight.data = dr_model.gc1.weight.data.t().clone()

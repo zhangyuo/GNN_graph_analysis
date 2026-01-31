@@ -14,6 +14,7 @@ import scipy.sparse as sp
 from torch_geometric.utils import to_undirected
 import torch.nn.functional as F
 import torch
+from deeprobust.graph.defense import GCN
 
 
 def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
@@ -111,6 +112,12 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
 
     return node_list, node_list1
 
+def set_up_surrogate_model(features, adj, labels, idx_train, idx_val, device=None):
+    surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item() + 1, nhid=16, dropout=0, with_relu=False,
+                    with_bias=False, device=device)
+    surrogate = surrogate.to(device)
+    surrogate.fit(features, adj, labels, idx_train, idx_val, patience=30)
+    return surrogate
 
 def mkdir_p(path):
     try:

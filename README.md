@@ -2,7 +2,7 @@
 # ATEX-CF: Attack-Informed Counterfactual Explanations for Graph Neural Networks
 
 <p align="center">
-  <img src="figs/architectureDiagram.png.igr" alt="Method" width="800"/>
+  <img src="architectureDiagram.png" alt="Method" width="800"/>
 </p>
 
 ---
@@ -58,7 +58,7 @@ For real-world evaluation, we use the Cora citation network, the large-scale ogb
 ---
 
 
-## Installation  
+## Installation
 
 ### Prerequisites  
 - Python 3.10+  
@@ -66,7 +66,7 @@ For real-world evaluation, we use the Cora citation network, the large-scale ogb
 
 ### Steps  
 
-1. Install PyTorch  
+1. Install PyTorch  (cpu version)
 ```bash
 pip install torch==2.2.2
 pip install torch-scatter torch-sparse torch-geometric -f https://pytorch-geometric.com/whl/torch-2.2.2+cpu.html
@@ -85,9 +85,20 @@ pip install deeprobust==0.2.11
 
 ### Usage
 
-1. Generate counterfactual and factual explanations (ATEX-CF, CF-GNNExplainer, INDUCE, C2Explainer, CFF, NSEG, GNNExplainer, PGExplainer) [counterfactual_explanation_subgraph](counterfactual_explanation_subgraph)
-2. Generate adversarial attack subgraph (Nettack, GOttack) [evasion_attack_subgraph](evasion_attack_subgraph)
-3. Model train: [gnn_model_train.py](gnn_model_train.py), [gcn_arxiv_batch.py](gcn_arxiv_batch.py)
-4. GNN analysis: [gnn_graph_generate.py](gnn_graph_generate.py), [gnn_graph_analysis.py](gnn_graph_analysis.py)
-5. Explanations evaluation: [evaluator_ac_gnnexplainer.py](evaluator_ac_gnnexplainer.py), [evaluator_c2explainer.py](evaluator_c2explainer.py), [evaluator_induce.py](counterfactual_explanation_subgraph%2FINDUCE_subgraph%2Fcora_test.py), [evaluator_cff.py](evaluator_cff.py), [evaluuator_nseg.py](evaluuator_nseg.py), [evaluator_cf_gnnexplainer.py](evaluator_cf_gnnexplainer.py), [evaluator_cf_gnnexplainer_budget.py](evaluator_cf_gnnexplainer_budget.py), [evaluator_gnnexplainer.py](evaluator_gnnexplainer.py), [evaluator_pgexplainer.py](evaluator_pgexplainer.py), [evaluator_Nettack.py](evaluator_Nettack.py), [evaluator_GOttack.py](evaluator_GOttack.py)
-6. Parameters setting: [config](config)
+1. Model train: [gnn_model_train.py](gnn_model_train.py), [gcn_arxiv_batch.py](gcn_arxiv_batch.py)
+2. Generate counterfactual explanations [acexplainer_subgraph.py](acexplainer_subgraph.py)
+3. Explanations evaluation: [evaluator_ac_gnnexplainer.py](evaluator_ac_gnnexplainer.py)
+4. Parameters setting: [config.py](config%2Fconfig.py)
+
+Current branch is the simplest branch about ATEX-CF method. Please checkout branch **master** for more implementations about compared methods (CF-GNNExplainer, INDUCE, C2Explainer, CFF, NSEG, GNNExplainer, PGExplainer, Nettack, GOttack)
+
+## lite-package
+1. Install pip package  (cpu version)
+```bash
+pip install atex_cf
+```
+
+2. Usable examples
+```
+XX
+```

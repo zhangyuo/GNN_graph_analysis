@@ -15,8 +15,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 res = os.path.abspath(__file__)  # acquire absolute path of current file
-base_path = os.path.dirname(
-    os.path.dirname(os.path.dirname(res)))  # acquire the parent path of current file's parent path
+base_path = os.path.dirname(res)  # acquire the parent path of current file's parent path
 sys.path.insert(0, base_path)
 from model.GAT import load_GATNet_model
 from model.GraphConv import load_GraphConv_model
@@ -34,13 +33,13 @@ from attack.GOttack.OrbitAttack import OrbitAttack
 from attack.GOttack.orbit_table_generator import OrbitTableGenerator
 from config.config import *
 from explainer.ac_explanation.ac_explainer import ACExplainer
-from model.GCN import GCN_model, dr_data_to_pyg_data, GCNtoPYG, load_GCN_model
+from model.GCN import dr_data_to_pyg_data, load_GCN_model
 from utilty.cfexplanation_visualization import visualize_cfexp_subgraph
-from utilty.utils import safe_open, get_neighbourhood, normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
+from utilty.utils import normalize_adj, select_test_nodes, CPU_Unpickler, BAShapesDataset, \
     TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset, edge_index_to_adj, tensor_to_sparse, tensor_to_numpy, \
     ChameleonDataset
 import torch.nn.functional as F
-from evasion_attack_subgraph.GOttack_subgraph.evasion_GOttack import set_up_surrogate_model
+from utilty.utils import set_up_surrogate_model
 from model.GraphTransformer import load_GraphTransforer_model
 from deeprobust.graph.defense import GCN
 from deeprobust.graph.targeted_attack import Nettack
@@ -212,17 +211,6 @@ def generate_acexplainer_subgraph(df_orbit,
     node_index_1 = node_index_1.tolist()
     node_num_l_hop = [node_index_1, attack_nodes, node_dict]
 
-    # # test model log-probability output is same to original prediction output
-    # if dataset_name == "ogbn-arxiv":
-    #     print("Output original model, full adj: {}".format(output[output_idx.index(target_node_val)]))
-    #     norm_sub_adj = normalize_adj(extended_adj)
-    #     print("Output original model, sub adj: {}".format(
-    #         gnn_model.forward(extended_feat, norm_sub_adj)[target_node_idx]))
-    # else:
-    #     print("Output original model, full adj: {}".format(output[target_node]))
-    #     norm_sub_adj = normalize_adj(extended_adj)
-    #     print("Output original model, sub adj: {}".format(gnn_model.forward(extended_feat, norm_sub_adj)[target_node_idx]))
-
     # 7. Create an interpreter
     if dataset_name == "ogbn-arxiv":
         y_pred_orig = output.argmax(dim=1)[output_idx.index(target_node_val)]
@@ -278,16 +266,6 @@ def generate_acexplainer_subgraph(df_orbit,
 
     print("Start index mapping!")
     delta_A = result["delta_A"]
-    # for i in range(delta_A.size(0)):
-    #     for j in range(i + 1, delta_A.size(1)):
-    #         if delta_A[i, j] > TAU_PLUS and extended_adj[i, j] == 0: # Added edges
-    #             orig_i = extended_nodes[i]
-    #             orig_j = extended_nodes[j]
-    #             added_edges.append((orig_i, orig_j))
-    #         elif delta_A[i, j] < TAU_MINUS and extended_adj[i, j] == 1: # Delete edges
-    #             orig_i = extended_nodes[i]
-    #             orig_j = extended_nodes[j]
-    #             removed_edges.append((orig_i, orig_j))
 
     triu_mask = torch.triu(torch.ones_like(delta_A, dtype=torch.bool), diagonal=1)
     add_mask = (delta_A > TAU_PLUS) & (extended_adj == 0) & triu_mask
@@ -510,13 +488,6 @@ def evaluate_test_data(gnn_model, data, pyg_data, gcn_layer):
         else:
             continue
 
-        # sampled_edge_index, sampled_nodes = sample_subgraph_edges_by_hop(
-        #     sub_edge_index, target_node, hop_neighbors={1: 10, 2: 5}
-        # )
-
-        # if sampled_edge_index is None or sampled_nodes is None:
-        #     continue
-
         # Subgraph features & labels
         x_sub = pyg_data.x[node_index].to(device)
 
@@ -714,7 +685,6 @@ if __name__ == '__main__':
     time_list = []
     mis_cases = 0
     for target_node in tqdm(target_node_list):
-        # target_node = 1978
         cf_example, time_cost, subgraph = generate_acexplainer_subgraph(df_orbit, target_node, data, pyg_data,
                                                                         gnn_model,
                                                                         surrogate, pre_output, gcn_layer, attack_method,

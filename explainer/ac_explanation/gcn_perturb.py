@@ -133,17 +133,6 @@ class SignedMaskPerturbation(nn.Module):
         Apply TopK sparsification (retain only the k largest perturbations in the gradient)
         Apply ternary discretization: -1 (delete), 0 (remain unchanged), +1 (add)
         """
-        # with torch.no_grad(): # Discretization operations do not require gradients
-        #     #Apply TopK sparsification (retain only the k perturbations with the largest gradients)
-        #     abs_values = torch.abs(M_e) # Calculate the absolute value of the continuous mask (a measure of the intensity of the disturbance
-        #     top_k_M_e = M_e
-        #     if len(M_e) > self.top_k:
-        #         # Find the top_k indexes with the largest absolute values
-        #         # keep_k = min(self.top_k, int(0.5 * len(M_e)))
-        #         topk_indices = torch.topk(abs_values, self.top_k).indices
-        #         sparse_mask = torch.zeros_like(M_e) # Create an all-0 mask
-        #         sparse_mask[topk_indices] = 1 # Set only top_k positions to 1
-        #         top_k_M_e = M_e * sparse_mask # Apply sparse mask
 
         with torch.no_grad():
             costs = torch.zeros_like(M_e)
@@ -209,12 +198,7 @@ class SignedMaskPerturbation(nn.Module):
         for data in self.plan_added_node_idx + self.plan_deleted_node_idx:
             full_mask[data[1][0], data[1][1]] = self.M[data[0]]
             full_mask[data[1][1], data[1][0]] = self.M[data[0]]
-        # edge_idx = 0
-        # for i in range(self.n_nodes):
-        #     if i != self.node_idx and i in (self.plan_added_node_idx + self.plan_deleted_node_idx):
-        #         full_mask[self.node_idx, i] = self.M[edge_idx]
-        #         full_mask[i, self.node_idx] = self.M[edge_idx]
-        #         edge_idx += 1
+
         return full_mask
 
     def predict_forward(self) -> torch.Tensor:
@@ -444,26 +428,6 @@ class GNNPerturb(nn.Module):
             output[self.node_idx].unsqueeze(0),
             y_pred_orig.unsqueeze(0)
         ) * (y_pred_new_actual == y_pred_orig.unsqueeze(0)).float()
-        # pred_loss = F.cross_entropy(output[self.node_idx].unsqueeze(0), y_pred_orig.unsqueeze(0))
-        # # Add items that encourage prediction changes, using more aggressive strategies
-        # if y_pred_new_actual == y_pred_orig:
-        #     # If the prediction does not change, add a larger loss to encourage change
-        #     pred_loss += 5.0 * pred_loss
-        # # Add attention consistency loss to encourage sparsity of attention weights
-        # attention_loss = 0
-        # for name, module in self.named_modules():
-        #     if hasattr(module, 'att') and module.att is not None:
-        #         # Encourage sparse attention weights
-        #         attention_loss += torch.mean(torch.abs(module.att.weight))
-
-        # Sparse loss (L0 norm)
-        # cf_adj = self.perturb_layer.build_perturbed_adj(self.extended_sub_adj, self.delta_A)
-        # cf_adj.requires_grad = True  # Need to change this otherwise loss_graph_dist has no gradient
-        # # dist_loss = sum(sum(abs(cf_adj - self.extended_sub_adj))) / 2
-        # deletion_mask = (self.delta_A == -1) & (self.extended_sub_adj == 1)
-        # num_deletions = deletion_mask.sum() / 2
-        # addition_mask = (self.delta_A == 1) & (self.extended_sub_adj == 0)
-        # num_additions = addition_mask.sum() / 2
 
         cf_adj = self.perturb_layer.ste_perturbed_adj(self.extended_sub_adj, self.full_mask)
         if self.lambda_dist == 0:
@@ -490,7 +454,6 @@ class GNNPerturb(nn.Module):
 
     def compute_plausibility_loss(self) -> torch.Tensor:
         """Calculate the loss of reality"""
-        loss_components = torch.tensor(0.0)
         loss_components_1 = torch.tensor(0.0)
         loss_components_2 = torch.tensor(0.0)
         loss_components_3 = torch.tensor(0.0)

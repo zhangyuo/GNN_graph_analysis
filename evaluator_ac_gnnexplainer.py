@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 import pickle
 import torch
+from datetime import datetime
 from acexplainer_subgraph import evaluate_test_data
 from deeprobust.graph.data import Dataset
 import torch.nn.functional as F
@@ -180,7 +181,7 @@ header = ['success', 'target_node', 'new_idx', 'added_edges', 'removed_edges', '
           'original_pred', 'new_pred', 'extended_adj', 'cf_adj', 'extended_feat', 'sub_labels', 'new_idx_map_tgt_node']
 
 # counterfactual explanation subgraph path
-time_name = '2025-11-20'
+time_name = datetime.now().strftime("%Y-%m-%d")
 counterfactual_explanation_subgraph_path = base_path + f'/results/{time_name}/counterfactual_subgraph_{test_model}/{attack_type}_{attack_method}_{explanation_type}_{explainer_method}_{dataset_name}_budget{[MAX_EDITS]}-{SEED_NUM}'
 
 with open(
@@ -214,9 +215,6 @@ for i in df.index:
         new_label = gnn_model.forward(sub_feat, edge_index, edge_weight=edge_weight)
 
     # misclassification
-
-    #     if df["success"][i]:
-    #         misclas_num += 1
     if dataset_name == "ogbn-arxiv":
         tgt_node_map_new_idx = df["target_node"][i]  # target node idx in new constructed subgraph
         target_node = df["new_idx_map_tgt_node"][i][tgt_node_map_new_idx]
@@ -245,12 +243,6 @@ for i in df.index:
     # plausibility
     tt = 0.0
     if df["success"][i]:
-        # features = pyg_data.x
-        # for u,v in df["added_edges"][i]:
-        #     tt += compute_feat_sim(features[u], features[v])
-        # for u,v in df["removed_edges"][i]:
-        #     tt += compute_feat_sim(features[u], features[v])
-        # tt = tt / df["explanation_size"][i]
         L_plau = α2 * compute_deg_diff(orig_sub_adj,
                                        edited_sub_adj) + α3 * compute_motif_viol(orig_sub_adj,
                                                                                  edited_sub_adj,

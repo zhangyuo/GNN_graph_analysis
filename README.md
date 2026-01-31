@@ -93,12 +93,11 @@ pip install deeprobust==0.2.11
 Current branch is the simplest branch about ATEX-CF method. Please checkout branch **master** for more implementations about compared methods (CF-GNNExplainer, INDUCE, C2Explainer, CFF, NSEG, GNNExplainer, PGExplainer, Nettack, GOttack)
 
 ## lite-package
-1. Install pip package  (cpu version)
+
+**⚠️ Note:** This is a **lite/pip-installable version** of ATEX-CF.  
+The package is **under development** and not yet fully released.
+
+1. Install pip package  (cpu version) -- coming soon
 ```bash
 pip install atex_cf
-```
-
-2. Usable examples
-```
-XX
 ```

@@ -582,6 +582,7 @@ if __name__ == '__main__':
     elif dataset_name == 'chameleon':
         # Create PyG Data object
         from torch_geometric.datasets import WikipediaNetwork
+
         chameleon_data = WikipediaNetwork(name="chameleon", root=dataset_path)
         pyg_data = chameleon_data[0]
         pyg_data.y = pyg_data.y.view(-1).long()
@@ -670,7 +671,9 @@ if __name__ == '__main__':
     ######################### select test nodes  #########################
     if dataset_name == "ogbn-arxiv":
         idx_test = target_node_id
-    target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels)
+    sample_num_per_cls = 2  # test nodes number of per class. you can set is None, method has default values for different datasets
+    target_node_list, target_node_list1 = select_test_nodes(dataset_name, attack_type, idx_test, pre_output, labels,
+                                                            sample_num_per_cls=sample_num_per_cls)
     target_node_list = target_node_list + target_node_list1
     target_node_list.sort()
     print(f"Test nodes number: {len(target_node_list)}, incorrect: {len(target_node_list1)}")

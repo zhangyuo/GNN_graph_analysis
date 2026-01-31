@@ -17,7 +17,7 @@ import torch
 from deeprobust.graph.defense import GCN
 
 
-def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
+def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels, sample_num_per_cls):
     """
     selecting nodes as reported in nettack paper:
     (i) the 10 nodes with highest margin of classification, i.e. they are clearly correctly classified,
@@ -30,14 +30,17 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
     """
     node_list = []
     node_list1 = []
-    sample_num = {
-        "cora": 10,
-        "BA-SHAPES": 10,
-        "TREE-CYCLES": 20,
-        "Loan-Decision": 20,
-        "chameleon": 5,
-        "ogbn-arxiv": 1
-    }[dataset_name]
+    if sample_num_per_cls:
+        sample_num = sample_num_per_cls
+    else:
+        sample_num = {
+            "cora": 10,
+            "BA-SHAPES": 10,
+            "TREE-CYCLES": 20,
+            "Loan-Decision": 20,
+            "chameleon": 5,
+            "ogbn-arxiv": 1
+        }[dataset_name]
     if attack_type is None:
         pass
     else:
@@ -57,7 +60,6 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
         high = []
         low = []
         other = []
-        # sample_num = 1
 
         for class_num in set(labels):
             class_num_sorted_margins = [x for x, y in sorted_margins if labels[x] == class_num]
@@ -71,12 +73,6 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
                     other += np.random.choice(other_0, 2 * sample_num, replace=True).tolist()
             else:
                 other += np.random.choice(other_0, len(other_0), replace=False).tolist()
-            # if len(other_0) > 20:
-            #     other += np.random.choice(other_0, sample_num, replace=True).tolist()
-            # elif len(other_0) > 0:
-            #     other += np.random.choice(other_0, len(other_0), replace=True).tolist()
-            # else:
-            #     print(f"Warning: Classification other_0 number of class {class_num} is empty，Skip sampling")
 
         node_list += high + low + other
         node_list = [int(x) for x in node_list]
@@ -86,7 +82,6 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
         high = []
         low = []
         other = []
-        # sample_num = 1
         for class_num in set(labels):
             class_num_sorted_margins = [x for x, y in sorted_margins if labels[x] == class_num]
             high += [x for x in class_num_sorted_margins[: sample_num]]
@@ -99,12 +94,6 @@ def select_test_nodes(dataset_name, attack_type, idx_test, ori_output, labels):
                     other += np.random.choice(other_0, 2 * sample_num, replace=True).tolist()
             else:
                 other += np.random.choice(other_0, len(other_0), replace=False).tolist()
-            # if len(other_0) > 20:
-            #     other += np.random.choice(other_0, sample_num, replace=True).tolist()
-            # elif len(other_0) > 0:
-            #     other += np.random.choice(other_0, len(other_0), replace=True).tolist()
-            # else:
-            #     print(f"Warning: Misclassification other_0 number of class {class_num} is empty，Skip sampling")
 
         node_list1 += high + low + other
         node_list1 = [int(x) for x in node_list1]
@@ -158,17 +147,6 @@ def normalize_adj(adj):
     norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp)
     return norm_adj
 
-
-# def get_neighbourhood(node_idx, edge_index, n_hops, features, labels):
-# 	edge_subset = k_hop_subgraph(node_idx, n_hops, edge_index[0])     # Get all nodes involved
-# 	edge_subset_relabel = subgraph(edge_subset[0], edge_index[0], relabel_nodes=True)       # Get relabelled subset of edges
-# 	sub_adj = to_dense_adj(edge_subset_relabel[0]).squeeze()
-# 	sub_feat = features[edge_subset[0], :]
-# 	sub_labels = labels[edge_subset[0]]
-# 	new_index = np.array([i for i in range(len(edge_subset[0]))])
-# 	node_dict = dict(zip(edge_subset[0].numpy(), new_index))        # Maps orig labels to new
-# 	# print("Num nodes in subgraph: {}".format(len(edge_subset[0])))
-# 	return sub_adj, sub_feat, sub_labels, node_dict
 
 def get_neighbourhood(target_node, edge_index, features, labels, gcn_layer):
     # generate explanation for target node from specified explainer
@@ -229,14 +207,6 @@ def accuracy(pred, labels):
     correct = (pred_labels == labels).float().sum()  # Statistics of correct predictions
     return correct / len(labels)  # return accuracy
 
-
-# def compute_deg_diff(orig_sub_adj, edited_sub_adj):
-#     orig_degrees = torch.sum(orig_sub_adj, dim=1)
-#     new_degrees = torch.sum(edited_sub_adj, dim=1)
-#     deg_diff = torch.sum(
-#         torch.abs(new_degrees - orig_degrees) / (1 + orig_degrees)
-#     )
-#     return deg_diff
 
 def compute_deg_diff(orig_sub_adj, edited_sub_adj):
     orig_degrees = torch.sum(orig_sub_adj)

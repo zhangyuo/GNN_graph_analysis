@@ -7,7 +7,26 @@
 
 ---
 
-## Overview  
+## Overview
+
+**Paper Title:** ATEX-CF: Attack-Informed Counterfactual Explanations for Graph Neural Networks
+
+**Authors:** Yu Zhang, Sean Bin Yang, Arijit Khan, Cuneyt Gurcan Akcora
+
+**Published in:** ICLR 2026 (International Conference on Learning Representations)
+
+**Citation:**  
+If you use this work, please cite it as:
+
+```bibtex
+@inproceedings{zhang2026atex,
+  title={ATEX-CF: Attack-Informed Counterfactual Explanations for Graph Neural Networks},
+  author={Yu Zhang and Sean Bin Yang and Arijit Khan and Cuneyt Gurcan Akcora},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2026}
+}
+```
+**ArXiv:** [Link to preprint](https://github.com/zhangyuo/GNN_graph_analysis)
 
 ATEX-CF is a novel framework that unifies adversarial attack strategies with counterfactual explanation generation for Graph Neural Networks. By integrating both edge additions and deletions within a constrained budget, it produces minimal, plausible, and highly effective explanations that outperform deletion-only and attack-only baselines across multiple benchmarks.
 

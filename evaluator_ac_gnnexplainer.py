@@ -26,12 +26,12 @@ from model.GCN import load_GCN_model, dr_data_to_pyg_data
 from model.GraphConv import load_GraphConv_model
 from model.GraphTransformer import load_GraphTransforer_model
 from utilty.utils import normalize_adj, select_test_nodes, compute_deg_diff, compute_motif_viol, CPU_Unpickler, \
-    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, compute_feat_sim, OGBNArxivDataset, ChameleonDataset
+    BAShapesDataset, TreeCyclesDataset, LoanDecisionDataset, OGBNArxivDataset, ChameleonDataset
 import numpy as np
 import pandas as pd
 import pickle
 import torch
-from counterfactual_explanation_subgraph.ACExplainer_subgraph.acexplainer_subgraph import evaluate_test_data
+from acexplainer_subgraph import evaluate_test_data
 from deeprobust.graph.data import Dataset
 import torch.nn.functional as F
 

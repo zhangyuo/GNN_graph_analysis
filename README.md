@@ -26,7 +26,7 @@ If you use this work, please cite it as:
   year={2026}
 }
 ```
-**ArXiv:** [Link to preprint](https://github.com/zhangyuo/GNN_graph_analysis)
+**ArXiv:** [https://doi.org/10.48550/arXiv.2602.06240](https://doi.org/10.48550/arXiv.2602.06240)
 
 ATEX-CF is a novel framework that unifies adversarial attack strategies with counterfactual explanation generation for Graph Neural Networks. By integrating both edge additions and deletions within a constrained budget, it produces minimal, plausible, and highly effective explanations that outperform deletion-only and attack-only baselines across multiple benchmarks.
 
